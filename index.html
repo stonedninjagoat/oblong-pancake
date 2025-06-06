@@ -26,6 +26,7 @@
       for (const file of files) {
         const li = document.createElement("li");
         const errors = [];
+        let bpmDisplay = "unknown";
 
         try {
           const arrayBuffer = await file.arrayBuffer();
@@ -47,17 +48,20 @@
           // === BPM Check ===
           const tempos = midi.header.tempos;
           if (tempos.length === 0) {
-            // Assume 120, do not report an error
-          } else if (tempos.length > 1) {
+            bpmDisplay = "120 (default)";
+          } else if (tempos.length === 1) {
+            bpmDisplay = tempos[0].bpm.toFixed(2);
+          } else {
             errors.push("contains more than 1 BPM");
+            bpmDisplay = tempos.map(t => t.bpm.toFixed(2)).join(", ");
           }
 
-          // === Display Results ===
+          // === Display Result ===
           if (errors.length > 0) {
-            li.textContent = `${file.name}: ${errors.join(', ')}`;
+            li.textContent = `${file.name}: ${errors.join(', ')} [BPM: ${bpmDisplay}]`;
             li.className = "error";
           } else {
-            li.textContent = `${file.name}: upload success`;
+            li.textContent = `${file.name}: upload success [BPM: ${bpmDisplay}]`;
             li.className = "success";
           }
 
