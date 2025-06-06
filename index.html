@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>MIDI Check</title>
+  <title>MIDI Validator</title>
   <script src="https://cdn.jsdelivr.net/npm/@tonejs/midi@2.0.27/build/Midi.min.js"></script>
   <style>
     body { font-family: sans-serif; padding: 20px; }
@@ -25,43 +25,40 @@
 
       for (const file of files) {
         const li = document.createElement("li");
-        const arrayBuffer = await file.arrayBuffer();
+        const errors = [];
 
         try {
+          const arrayBuffer = await file.arrayBuffer();
           const midi = new Midi(arrayBuffer);
 
-          // === Track Count Check ===
+          // Track count check
           if (midi.tracks.length !== 1) {
-            li.textContent = `${file.name}: contains ${midi.tracks.length < 1 ? 'less' : 'more'} than 1 track`;
-            li.className = "error";
-            resultList.appendChild(li);
-            continue;
+            errors.push(`contains ${midi.tracks.length < 1 ? 'less' : 'more'} than 1 track`);
           }
 
-          // === Percussion Check ===
+          // Percussion check (channel 9 = percussion)
           const hasPercussion = midi.tracks.some(track =>
             track.notes.some(note => note.channel === 9)
           );
-
           if (hasPercussion) {
-            li.textContent = `${file.name}: percussive`;
-            li.className = "error";
-            resultList.appendChild(li);
-            continue;
+            errors.push("percussive");
           }
 
-          // === BPM Check ===
+          // BPM check
           const tempos = midi.header.tempos;
           if (tempos.length !== 1) {
-            li.textContent = `${file.name}: contains ${tempos.length < 1 ? 'less' : 'more'} than 1 BPM`;
-            li.className = "error";
-            resultList.appendChild(li);
-            continue;
+            errors.push(`contains ${tempos.length < 1 ? 'less' : 'more'} than 1 BPM`);
           }
 
-          // === Success ===
-          li.textContent = `${file.name}: upload success`;
-          li.className = "success";
+          // Display result
+          if (errors.length > 0) {
+            li.textContent = `${file.name}: ${errors.join(', ')}`;
+            li.className = "error";
+          } else {
+            li.textContent = `${file.name}: upload success`;
+            li.className = "success";
+          }
+
         } catch (err) {
           li.textContent = `${file.name}: error reading MIDI`;
           li.className = "error";
