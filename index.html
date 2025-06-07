@@ -9,7 +9,6 @@
     .success { color: green; }
     .error { color: red; }
     pre { background: #f0f0f0; padding: 10px; white-space: pre-wrap; }
-    a.download { display: block; margin-top: 10px; }
   </style>
 </head>
 <body>
@@ -21,44 +20,56 @@
     const fileInput = document.getElementById("fileInput");
     const resultList = document.getElementById("resultList");
 
-    function getNoteLengthLabel(note, ppq) {
+    function getNoteLength(note, ppq) {
       const ticks = note.durationTicks;
-      const quarterTicks = ppq;
-      const baseDur = ticks / quarterTicks;
-      const labels = {
-        4: 'whole',
-        2: 'half',
-        1: 'quarter',
-        0.5: 'eighth',
-        0.25: 'sixteenth',
-        0.125: 'thirty-second',
-        0.0625: 'sixty-fourth'
+      const baseDur = ticks / ppq;
+      const durationMap = {
+        4: "whole note",
+        2: "half note",
+        1: "quarter note",
+        0.5: "eighth note",
+        0.25: "sixteenth note",
+        0.125: "thirty-second note"
       };
-      for (let dur in labels) {
-        if (Math.abs(baseDur - dur) < 0.01) return `1/${1/dur} (${labels[dur]} note)`;
+
+      for (let val of Object.keys(durationMap)) {
+        if (Math.abs(baseDur - val) < 0.01) {
+          return `${val} (${durationMap[val]})`;
+        }
+        if (Math.abs(baseDur - val * 1.5) < 0.01) {
+          return `${val * 1.5} (dotted ${durationMap[val]})`;
+        }
+        if (Math.abs(baseDur - val / 3) < 0.01) {
+          return `${val / 3} (triplet ${durationMap[val]})`;
+        }
       }
-      return `${baseDur.toFixed(4)} (custom)`;
+
+      return `${baseDur.toFixed(4)} (unknown)`;
     }
 
-    function midiToJianpu(midiNote, key = "C") {
+    function midiToJianpu(midiNote) {
       const scale = [0, 2, 4, 5, 7, 9, 11];
-      const base = 60; // Middle C
+      const base = 60;
       const rel = (midiNote - base + 120) % 12;
       const octave = Math.floor((midiNote - base) / 12) + 4;
       const degree = scale.indexOf(rel);
       return degree >= 0 ? [degree + 1, octave] : ["x", octave];
     }
 
-    function downloadCSV(filename, rows) {
-      const csvContent = rows.map(e => e.map(v => `"${v}"`).join(",")).join("\n");
-      const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement("a");
-      link.setAttribute("href", url);
-      link.setAttribute("download", filename);
-      link.className = "download";
-      link.textContent = `Download CSV for ${filename}`;
-      return link;
+    function generateCSV(data) {
+      let csv = "Pitch (MIDI),Note Value,Jianpu Degree,Jianpu Octave\n";
+      data.forEach(row => {
+        csv += `${row.pitch},${row.noteValue},${row.degree},${row.octave}\n`;
+      });
+      return csv;
+    }
+
+    function downloadCSV(content, filename) {
+      const blob = new Blob([content], { type: 'text/csv' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = filename;
+      a.click();
     }
 
     fileInput.addEventListener("change", async (event) => {
@@ -102,38 +113,37 @@
           if (errors.length === 0) {
             const track = midi.tracks[0];
             const notes = track.notes;
-            const note_pitches = [];
-            const note_values = [];
-            const note_number = [];
             const ppq = midi.header.ppq;
-            const csvRows = [["Pitch (MIDI)", "Duration", "Jianpu Degree", "Jianpu Octave"]];
-
-            for (let note of notes) {
-              note_pitches.push(note.midi);
-              let label = getNoteLengthLabel(note, ppq);
-              note_values.push(label);
-              let jianpu = midiToJianpu(note.midi);
-              note_number.push(jianpu);
-              csvRows.push([note.midi, label, jianpu[0], jianpu[1]]);
-            }
+            const parsedNotes = notes.map(note => {
+              const [degree, octave] = midiToJianpu(note.midi);
+              return {
+                pitch: note.midi,
+                noteValue: getNoteLength(note, ppq),
+                degree,
+                octave
+              };
+            });
 
             const time_signatures = midi.header.timeSignatures.map(ts => `${ts.timeSignature[0]}/${ts.timeSignature[1]}`);
 
             dataOutput = {
               tempo: `BPM = ${bpm}`,
               time_signatures,
-              note_pitches,
-              note_values,
-              note_number
+              notes: parsedNotes
             };
 
             pre.textContent = JSON.stringify(dataOutput, null, 2);
             li.appendChild(pre);
-            li.appendChild(downloadCSV(file.name.replace(/\.[^/.]+$/, "") + ".csv", csvRows));
+
+            const csvContent = generateCSV(parsedNotes);
+            const downloadBtn = document.createElement("button");
+            downloadBtn.textContent = "Download CSV";
+            downloadBtn.onclick = () => downloadCSV(csvContent, file.name + ".csv");
+            li.appendChild(downloadBtn);
           }
 
-          li.className = errors.length > 0 ? "error" : "success";
-          li.insertAdjacentText("afterbegin", `${file.name}: ${errors.length > 0 ? errors.join(', ') : 'upload success'} [BPM: ${bpmDisplay}]\n`);
+          li.className = errors.length ? "error" : "success";
+          li.prepend(`${file.name}: ${errors.length ? errors.join(', ') : 'upload success'} [BPM: ${bpmDisplay}]\n`);
 
         } catch (err) {
           li.textContent = `${file.name}: error reading MIDI`;
