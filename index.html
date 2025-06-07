@@ -33,14 +33,15 @@
       };
 
       for (let val of Object.keys(durationMap)) {
-        if (Math.abs(baseDur - val) < 0.01) {
-          return `${val} (${durationMap[val]})`;
+        const numVal = parseFloat(val);
+        if (Math.abs(baseDur - numVal) < 0.01) {
+          return `${numVal} (${durationMap[val]})`;
         }
-        if (Math.abs(baseDur - val * 1.5) < 0.01) {
-          return `${val * 1.5} (dotted ${durationMap[val]})`;
+        if (Math.abs(baseDur - numVal * 1.5) < 0.01) {
+          return `${(numVal * 1.5).toFixed(4)} (dotted ${durationMap[val]})`;
         }
-        if (Math.abs(baseDur - val / 3) < 0.01) {
-          return `${val / 3} (triplet ${durationMap[val]})`;
+        if (Math.abs(baseDur - numVal / 3) < 0.01) {
+          return `${(numVal / 3).toFixed(4)} (triplet ${durationMap[val]})`;
         }
       }
 
