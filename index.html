@@ -8,6 +8,7 @@
     body { font-family: sans-serif; padding: 20px; }
     .success { color: green; }
     .error { color: red; }
+    pre { background: #f0f0f0; padding: 10px; white-space: pre-wrap; }
   </style>
 </head>
 <body>
@@ -19,25 +20,46 @@
     const fileInput = document.getElementById("fileInput");
     const resultList = document.getElementById("resultList");
 
+    function getNoteLength(note, ppq) {
+      const ticks = note.durationTicks;
+      const quarterTicks = ppq;
+      const baseDur = ticks / quarterTicks;
+
+      const durations = [4, 2, 1, 0.5, 0.25, 0.125, 0.0625];
+      for (let dur of durations) {
+        if (Math.abs(baseDur - dur) < 0.01) return dur;
+      }
+      return +baseDur.toFixed(4);
+    }
+
+    function midiToJianpu(midiNote, key = "C") {
+      const scale = [0, 2, 4, 5, 7, 9, 11];
+      const base = 60; // Middle C
+      const rel = (midiNote - base + 120) % 12;
+      const octave = Math.floor((midiNote - base) / 12) + 4;
+      const degree = scale.indexOf(rel);
+      return degree >= 0 ? [degree + 1, octave] : ["x", octave];
+    }
+
     fileInput.addEventListener("change", async (event) => {
       resultList.innerHTML = "";
       const files = event.target.files;
 
       for (const file of files) {
         const li = document.createElement("li");
+        const pre = document.createElement("pre");
         const errors = [];
         let bpmDisplay = "unknown";
+        let dataOutput = {};
 
         try {
           const arrayBuffer = await file.arrayBuffer();
           const midi = new Midi(arrayBuffer);
 
-          // === Track Count Check ===
           if (midi.tracks.length !== 1) {
             errors.push(`contains ${midi.tracks.length < 1 ? 'less' : 'more'} than 1 track`);
           }
 
-          // === Percussion Check ===
           const hasPercussion = midi.tracks.some(track =>
             track.notes.some(note => note.channel === 9)
           );
@@ -45,24 +67,53 @@
             errors.push("percussive");
           }
 
-          // === BPM Check ===
           const tempos = midi.header.tempos;
+          let bpm = 120;
           if (tempos.length === 0) {
             bpmDisplay = "120 (default)";
           } else if (tempos.length === 1) {
-            bpmDisplay = tempos[0].bpm.toFixed(2);
+            bpm = tempos[0].bpm;
+            bpmDisplay = bpm.toFixed(2);
           } else {
             errors.push("contains more than 1 BPM");
             bpmDisplay = tempos.map(t => t.bpm.toFixed(2)).join(", ");
           }
 
-          // === Display Result ===
+          if (errors.length === 0) {
+            const track = midi.tracks[0];
+            const notes = track.notes;
+            const note_pitches = [];
+            const note_values = [];
+            const note_number = [];
+            const ppq = midi.header.ppq;
+
+            for (let note of notes) {
+              note_pitches.push(note.midi);
+              let dur = getNoteLength(note, ppq);
+              note_values.push(dur);
+              note_number.push(midiToJianpu(note.midi));
+            }
+
+            const time_signatures = midi.header.timeSignatures.map(ts => `${ts.timeSignature[0]}/${ts.timeSignature[1]}`);
+
+            dataOutput = {
+              tempo: `BPM = ${bpm}`,
+              time_signatures,
+              note_pitches,
+              note_values,
+              notes: notes.map((n, i) => [note_pitches[i], note_values[i]]),
+              note_number
+            };
+          }
+
           if (errors.length > 0) {
             li.textContent = `${file.name}: ${errors.join(', ')} [BPM: ${bpmDisplay}]`;
             li.className = "error";
           } else {
             li.textContent = `${file.name}: upload success [BPM: ${bpmDisplay}]`;
             li.className = "success";
+            pre.textContent = JSON.stringify(dataOutput, null, 2);
+            li.appendChild(pre);
           }
 
         } catch (err) {
