@@ -18,16 +18,15 @@
 
   <script>
     function transposeToCMajor(track) {
-      // Naively assumes the track is in a major key. Detects root and shifts to C.
       const notes = track.notes;
       if (notes.length === 0) return;
 
-      // Get the most common note pitch class
-      const pitchClasses = new Array(12).fill(0);
+      // Get the most common pitch class
+      const pitchClasses = Array(12).fill(0);
       notes.forEach(n => pitchClasses[n.midi % 12]++);
       const mostCommon = pitchClasses.indexOf(Math.max(...pitchClasses));
+      const shift = (0 - mostCommon + 12) % 12;
 
-      const shift = (0 - mostCommon + 12) % 12; // shift root to C (0)
       notes.forEach(n => n.midi += shift);
     }
 
@@ -41,67 +40,66 @@
       const midiList = [];
       const bpms = [];
 
-      // Load and analyze all MIDI files
       for (const file of files) {
-        const arrayBuffer = await file.arrayBuffer();
-        const midi = new Midi(arrayBuffer);
-        if (midi.header.tempos.length > 0) {
+        try {
+          const arrayBuffer = await file.arrayBuffer();
+          const midi = new Midi(arrayBuffer);
           midi.header.tempos.forEach(t => bpms.push(t.bpm));
-        } else {
-          bpms.push(120); // default if missing
-        }
+          if (midi.header.tempos.length === 0) bpms.push(120); // default
 
-        // Transpose all tracks in the MIDI to C major
-        midi.tracks.forEach(track => transposeToCMajor(track));
-        midiList.push(midi);
+          midi.tracks.forEach(track => transposeToCMajor(track));
+          midiList.push(midi);
+        } catch (e) {
+          document.getElementById("status").innerText = `Error reading file: ${file.name}`;
+          return;
+        }
       }
 
-      // Calculate average BPM
       const avgBPM = bpms.reduce((a, b) => a + b, 0) / bpms.length;
 
-      // Create new MIDI file and set tempo
       const combinedMidi = new Midi();
       combinedMidi.header.setTempo(avgBPM);
 
       let currentTime = 0;
 
       for (const midi of midiList) {
-        for (const track of midi.tracks) {
+        for (const sourceTrack of midi.tracks) {
           const newTrack = combinedMidi.addTrack();
 
-          for (const note of track.notes) {
+          sourceTrack.notes.forEach(note => {
             newTrack.addNote({
               midi: note.midi,
               time: note.time + currentTime,
               duration: note.duration,
               velocity: note.velocity
             });
-          }
+          });
 
-          for (const cc of track.controlChanges) {
-            Object.values(cc).forEach(event => {
+          Object.values(sourceTrack.controlChanges).forEach(ccArray => {
+            ccArray.forEach(cc => {
               newTrack.addCC({
-                number: event.number,
-                value: event.value,
-                time: event.time + currentTime
+                number: cc.number,
+                value: cc.value,
+                time: cc.time + currentTime
               });
             });
-          }
+          });
         }
 
-        // Update current time to append next MIDI after this one
-        const midiDuration = midi.duration;
-        currentTime += midiDuration;
+        currentTime += midi.duration;
       }
 
-      // Export the combined MIDI
       const bytes = combinedMidi.toArray();
       const blob = new Blob([bytes], { type: 'audio/midi' });
       const url = URL.createObjectURL(blob);
+
+      // Ensure download works by appending <a> to DOM
       const a = document.createElement("a");
       a.href = url;
       a.download = "combined_standardized.mid";
+      document.body.appendChild(a);
       a.click();
+      document.body.removeChild(a);
 
       document.getElementById("status").innerText = "Exported combined MIDI!";
     }
