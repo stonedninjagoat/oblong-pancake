@@ -7,9 +7,8 @@
   <style>
     body { font-family: Arial, sans-serif; padding: 20px; }
     input { margin-bottom: 20px; }
-    .success { color: green; }
-    .error { color: red; }
-    pre { background: #f0f0f0; padding: 10px; }
+    .success { color: green; white-space: pre-wrap; }
+    .error { color: red; white-space: pre-wrap; }
   </style>
 </head>
 <body>
@@ -27,21 +26,27 @@
         reader.onload = async (e) => {
           try {
             const midi = new Midi(e.target.result);
+            const fileName = file.name;
             const originalTrackCount = midi.tracks.length;
+            let messages = [];
 
-            // Merge tracks if there's more than one
+            // Merge tracks if more than 1
             if (originalTrackCount > 1) {
               const mergedTrack = midi.tracks.reduce((merged, current) => {
                 merged.notes.push(...current.notes);
                 return merged;
               }, new Midi().addTrack());
               midi.tracks = [mergedTrack];
+              messages.push("merge success");
             }
 
-            // Check for percussive content (channel 9 = percussion)
+            // Check for percussion (channel 9 = percussion)
             const isPercussive = midi.tracks[0].notes.some(note => note.channel === 9);
+            if (isPercussive) {
+              messages.unshift(`${fileName}: percussive`);
+            }
 
-            // BPM check
+            // Get BPM
             let bpm = 120;
             let bpmSource = "default (120)";
             const tempos = midi.header.tempos;
@@ -49,21 +54,30 @@
               bpm = tempos[0].bpm;
               bpmSource = bpm.toFixed(2);
             } else if (tempos.length > 1) {
-              // Keep first tempo for simplicity
               bpm = tempos[0].bpm;
               bpmSource = `multiple detected, using first (${bpm.toFixed(2)})`;
             }
 
-            const messages = [];
-            const fileName = file.name;
+            // Time signatures
+            const timeSignatures = midi.header.timeSignatures.map(sig =>
+              `${sig.time} = ${sig.numerator}/${sig.denominator}`
+            ).join(", ") || "none";
 
-            if (isPercussive) {
-              messages.push(`${fileName}: percussive`);
-            }
+            // Note data: [midi#, duration]
+            const noteList = midi.tracks[0].notes.map(n =>
+              `[${n.midi}, ${n.duration.toFixed(3)}]`
+            ).join(", ");
 
-            const resultMsg = messages.length > 0
-              ? `<div class="error"><strong>${fileName}</strong>: ${messages.join(", ")}<br>BPM: ${bpmSource}<br>Tracks: ${originalTrackCount} → merged to 1</div>`
-              : `<div class="success"><strong>${fileName}</strong>: upload success<br>BPM: ${bpmSource}<br>Tracks: ${originalTrackCount} → merged to 1</div>`;
+            // Compose output
+            const baseInfo =
+              `BPM: ${bpmSource}\n` +
+              `Tracks: ${originalTrackCount} → ${midi.tracks.length}\n` +
+              `Time Signatures: ${timeSignatures}\n` +
+              `Notes: ${noteList}`;
+
+            const resultMsg = isPercussive
+              ? `<div class="error"><strong>${fileName}</strong>: ${messages.join(", ")}\n${baseInfo}</div>`
+              : `<div class="success"><strong>${fileName}</strong>: upload success\n${messages.join(", ")}\n${baseInfo}</div>`;
 
             resultsDiv.innerHTML += resultMsg;
           } catch (err) {
