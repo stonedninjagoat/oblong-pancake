@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
+  <meta charset="UTF-8" />
   <title>MIDI File Validator</title>
   <script src="https://cdn.jsdelivr.net/npm/@tonejs/midi@2.0.27/build/Midi.min.js"></script>
   <style>
@@ -13,10 +13,50 @@
 </head>
 <body>
   <h1>MIDI File Validator</h1>
-  <input type="file" id="midiInput" multiple accept=".mid,.midi">
+  <input type="file" id="midiInput" multiple accept=".mid,.midi" />
   <div id="results"></div>
 
   <script>
+    // Converts duration (seconds) to musical notation based on quarter note length
+    function durationToNotation(duration, quarterLength) {
+      if (!quarterLength || quarterLength <= 0) return duration.toFixed(3);
+
+      // Calculate ratio to quarter note length
+      const ratio = duration / quarterLength;
+      const roundRatio = Math.round(ratio * 8) / 8; // round to nearest 1/8
+
+      // Common note durations as fraction of quarter note
+      const noteMap = [
+        { name: "whole (4/4)", value: 4 },
+        { name: "dotted half (3/4)", value: 3 },
+        { name: "half (2/4)", value: 2 },
+        { name: "dotted quarter (1.5 1/4)", value: 1.5 },
+        { name: "quarter (1/4)", value: 1 },
+        { name: "dotted eighth (0.75 1/8)", value: 0.75 },
+        { name: "eighth (1/8)", value: 0.5 },
+        { name: "sixteenth (1/16)", value: 0.25 },
+      ];
+
+      // Find closest note duration
+      let closest = null;
+      let minDiff = Infinity;
+      for (const note of noteMap) {
+        const diff = Math.abs(note.value - roundRatio);
+        if (diff < minDiff) {
+          minDiff = diff;
+          closest = note;
+        }
+      }
+
+      // If close enough to a standard note (within 0.1), return name + ratio
+      if (minDiff < 0.1) {
+        return `${closest.name} (~${roundRatio.toFixed(2)})`;
+      }
+
+      // Otherwise show ratio only
+      return ratio.toFixed(3);
+    }
+
     document.getElementById("midiInput").addEventListener("change", async (event) => {
       const resultsDiv = document.getElementById("results");
       resultsDiv.innerHTML = "";
@@ -58,14 +98,29 @@
               bpmSource = `multiple detected, using first (${bpm.toFixed(2)})`;
             }
 
-            // Time signatures
+            // Time signatures list (measure time = time in seconds)
             const timeSignatures = midi.header.timeSignatures.map(sig =>
-              `${sig.time} = ${sig.numerator}/${sig.denominator}`
+              `at ${sig.time.toFixed(3)}s = ${sig.numerator}/${sig.denominator}`
             ).join(", ") || "none";
 
-            // Note data: [midi#, duration]
-            const noteList = midi.tracks[0].notes.map(n =>
-              `[${n.midi}, ${n.duration.toFixed(3)}]`
+            // Notes
+            const notes = midi.tracks[0].notes;
+
+            // Unique sorted midi note numbers
+            const uniqueMidiNotes = [...new Set(notes.map(n => n.midi))].sort((a,b)=>a-b);
+
+            // Quarter note length in seconds = 60 / bpm
+            const quarterNoteLength = 60 / bpm;
+
+            // Note durations: map unique durations to notation
+            const uniqueDurations = [...new Set(notes.map(n => n.duration))].sort((a,b)=>a-b);
+            const durationsNotation = uniqueDurations.map(dur =>
+              `${dur.toFixed(3)}s = ${durationToNotation(dur, quarterNoteLength)}`
+            );
+
+            // Notes as [midi#, duration]
+            const noteList = notes.map(n =>
+              `[${n.midi}, ${n.duration.toFixed(3)}s]`
             ).join(", ");
 
             // Compose output
@@ -73,6 +128,8 @@
               `BPM: ${bpmSource}\n` +
               `Tracks: ${originalTrackCount} → ${midi.tracks.length}\n` +
               `Time Signatures: ${timeSignatures}\n` +
+              `Unique MIDI Notes: ${uniqueMidiNotes.join(", ")}\n` +
+              `Unique Note Durations:\n  ${durationsNotation.join("\n  ")}\n` +
               `Notes: ${noteList}`;
 
             const resultMsg = isPercussive
