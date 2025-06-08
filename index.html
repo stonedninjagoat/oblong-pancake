@@ -27,34 +27,43 @@
         reader.onload = async (e) => {
           try {
             const midi = new Midi(e.target.result);
-            const trackCount = midi.tracks.length;
-            const tempos = midi.header.tempos;
-            const bpmList = tempos.map(t => t.bpm);
-            const uniqueBPMs = [...new Set(bpmList.map(bpm => bpm.toFixed(2)))];
+            const originalTrackCount = midi.tracks.length;
 
-            // Check if any percussive channels (channel 9 = percussion)
-            const isPercussive = midi.tracks.some(track =>
-              track.notes.some(note => note.channel === 9)
-            );
-
-            const fileName = file.name;
-            let messages = [];
-
-            if (trackCount !== 1) {
-              messages.push(`${fileName}: contains ${trackCount < 1 ? "less" : "more"} than 1 track`);
+            // Merge tracks if there's more than one
+            if (originalTrackCount > 1) {
+              const mergedTrack = midi.tracks.reduce((merged, current) => {
+                merged.notes.push(...current.notes);
+                return merged;
+              }, new Midi().addTrack());
+              midi.tracks = [mergedTrack];
             }
+
+            // Check for percussive content (channel 9 = percussion)
+            const isPercussive = midi.tracks[0].notes.some(note => note.channel === 9);
+
+            // BPM check
+            let bpm = 120;
+            let bpmSource = "default (120)";
+            const tempos = midi.header.tempos;
+            if (tempos.length === 1) {
+              bpm = tempos[0].bpm;
+              bpmSource = bpm.toFixed(2);
+            } else if (tempos.length > 1) {
+              // Keep first tempo for simplicity
+              bpm = tempos[0].bpm;
+              bpmSource = `multiple detected, using first (${bpm.toFixed(2)})`;
+            }
+
+            const messages = [];
+            const fileName = file.name;
 
             if (isPercussive) {
               messages.push(`${fileName}: percussive`);
             }
 
-            if (uniqueBPMs.length !== 1) {
-              messages.push(`${fileName}: contains ${uniqueBPMs.length < 1 ? "no" : "more"} than 1 BPM`);
-            }
-
             const resultMsg = messages.length > 0
-              ? `<div class="error"><strong>${fileName}</strong>: ${messages.join(", ")}<br>BPMs: ${uniqueBPMs.join(", ") || "none"}<br>Tracks: ${trackCount}</div>`
-              : `<div class="success"><strong>${fileName}</strong>: upload success<br>BPM: ${uniqueBPMs[0]}<br>Tracks: ${trackCount}</div>`;
+              ? `<div class="error"><strong>${fileName}</strong>: ${messages.join(", ")}<br>BPM: ${bpmSource}<br>Tracks: ${originalTrackCount} → merged to 1</div>`
+              : `<div class="success"><strong>${fileName}</strong>: upload success<br>BPM: ${bpmSource}<br>Tracks: ${originalTrackCount} → merged to 1</div>`;
 
             resultsDiv.innerHTML += resultMsg;
           } catch (err) {
