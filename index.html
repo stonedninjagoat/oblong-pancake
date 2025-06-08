@@ -57,6 +57,29 @@
       return ratio.toFixed(3);
     }
 
+    // Extract time signatures from all tracks' meta events
+    function getTimeSignatures(midi) {
+      const timeSigs = [];
+    
+      for (const track of midi.tracks) {
+        for (const event of track.meta) {
+          if (event.type === "timeSignature") {
+            // event.time is in ticks, convert to seconds:
+            const seconds = midi.ticksToSeconds(event.ticks);
+            timeSigs.push({
+              time: seconds,
+              numerator: event.timeSignature[0],   // array [num, denom]
+              denominator: event.timeSignature[1]
+            });
+          }
+        }
+      }
+    
+      // Sort by time ascending
+      return timeSigs.sort((a, b) => a.time - b.time);
+    }
+    
+
     document.getElementById("midiInput").addEventListener("change", async (event) => {
       const resultsDiv = document.getElementById("results");
       resultsDiv.innerHTML = "";
@@ -98,10 +121,10 @@
               bpmSource = `multiple detected, using first (${bpm.toFixed(2)})`;
             }
 
-            // Time signatures list (measure time = time in seconds)
-            const timeSignatures = midi.header.timeSignatures.map(sig =>
-              `at ${sig.time.toFixed(3)}s = ${sig.numerator}/${sig.denominator}`
-            ).join(", ") || "none";
+            const timeSignaturesData = getTimeSignatures(midi);
+            const timeSignatures = timeSignaturesData.length
+            ? timeSignaturesData.map(sig => `at ${sig.time.toFixed(3)}s = ${sig.numerator}/${sig.denominator}`).join(", ")
+            : "none";
 
             // Notes
             const notes = midi.tracks[0].notes;
