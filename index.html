@@ -99,36 +99,38 @@
             errors.push("percussive");
           }
 
-const tempos = midi.header.tempos;
-let bpm = 120;
-
-if (tempos.length === 0) {
-  bpmDisplay = "120 (default)";
-} else if (tempos.length === 1) {
-  bpm = tempos[0].bpm;
-  bpmDisplay = bpm.toFixed(2);
-} else {
-  // Calculate total ticks for each BPM
-  const bpmDurations = {};
-
-  for (let i = 0; i < tempos.length; i++) {
-    const current = tempos[i];
-    const nextTick = (tempos[i + 1] ? tempos[i + 1].ticks : midi.durationTicks);
-    const durationTicks = nextTick - current.ticks;
-    const bpmKey = current.bpm.toFixed(2);
-    bpmDurations[bpmKey] = (bpmDurations[bpmKey] || 0) + durationTicks;
-  }
-
-  // Find BPM with the max duration
-  const [mostUsedBPM] = Object.entries(bpmDurations).sort((a, b) => b[1] - a[1])[0];
-  bpm = parseFloat(mostUsedBPM);
-
-  // Overwrite all tempo changes to use the most common BPM
-  midi.header.tempos = [{ bpm, ticks: 0 }];
-
-  bpmDisplay = `${Object.keys(bpmDurations).join(", ")} → set to ${bpm.toFixed(2)}`;
-}
-
+          const tempos = midi.header.tempos;
+          let bpm = 120;
+          
+          if (tempos.length === 0) {
+            bpmDisplay = "120 (default)";
+          } else if (tempos.length === 1) {
+            bpm = tempos[0].bpm;
+            bpmDisplay = bpm.toFixed(2);
+          } else {
+            // Calculate duration (in ticks) each BPM lasts
+            const bpmDurations = {};
+          
+            for (let i = 0; i < tempos.length; i++) {
+              const current = tempos[i];
+              const nextTick = tempos[i + 1] ? tempos[i + 1].ticks : midi.durationTicks;
+              const tickSpan = nextTick - current.ticks;
+          
+              const bpmKey = current.bpm.toFixed(2);
+              if (!bpmDurations[bpmKey]) bpmDurations[bpmKey] = 0;
+              bpmDurations[bpmKey] += tickSpan;
+            }
+          
+            // Find the BPM with the most ticks
+            let mostUsedBPM = Object.entries(bpmDurations).sort((a, b) => b[1] - a[1])[0][0];
+            bpm = parseFloat(mostUsedBPM);
+          
+            // Overwrite all tempos with just one global BPM
+            midi.header.tempos = [{ bpm: bpm, ticks: 0 }];
+          
+            // NOTE: This only changes the in-memory MIDI. You'll need to re-export to persist.
+            bpmDisplay = Object.keys(bpmDurations).join(", ") + ` → set to ${bpm.toFixed(2)}`;
+          }
 
           if (errors.length === 0) {
             const track = midi.tracks[0];
