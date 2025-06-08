@@ -6,7 +6,7 @@
   <script src="https://cdn.jsdelivr.net/npm/@tonejs/midi@2.0.27/build/Midi.min.js"></script>
   <style>
     body { font-family: sans-serif; padding: 20px; }
-    pre { background: #f0f0f0; padding: 10px; white-space: pre-wrap; }
+    pre { background: #f4f4f4; padding: 10px; white-space: pre-wrap; }
   </style>
 </head>
 <body>
@@ -15,24 +15,36 @@
   <pre id="output">Upload a MIDI file to begin...</pre>
 
   <script>
-    function toFraction(duration, ppq) {
-      const quarterTicks = ppq;
-      const value = duration / quarterTicks;
+    function round(val, tol = 0.01) {
+      return Math.abs(val - Math.round(val)) < tol ? Math.round(val) : val;
+    }
 
-      if (Math.abs(value - 1) < 0.01) return "1/4";
-      if (Math.abs(value - 0.5) < 0.01) return "1/8";
-      if (Math.abs(value - 0.25) < 0.01) return "1/16";
-      if (Math.abs(value - 2) < 0.01) return "1/2";
-      if (Math.abs(value - 4) < 0.01) return "1";
-      if (Math.abs(value - 1.5) < 0.01) return "dotted 1/4";
-      if (Math.abs(value - 0.333) < 0.01) return "triplet 1/4";
-      return value.toFixed(3);
+    function getDurationLabel(ticks, ppq) {
+      const base = ticks / ppq;
+
+      const standard = {
+        4: "whole",
+        2: "1/2",
+        1: "1/4",
+        0.5: "1/8",
+        0.25: "1/16",
+        0.125: "1/32"
+      };
+
+      for (let dur in standard) {
+        const f = parseFloat(dur);
+        if (Math.abs(base - f) < 0.01) return standard[dur];
+        if (Math.abs(base - f * 1.5) < 0.01) return `dotted ${standard[dur]}`;
+        if (Math.abs(base - f / 3) < 0.01) return `triplet ${standard[dur]}`;
+      }
+
+      return `${base.toFixed(3)} quarter`;
     }
 
     function toJianpu(midiNote, keyRoot = 0) {
-      const scale = [0, 2, 4, 5, 7, 9, 11];
+      const scale = [0, 2, 4, 5, 7, 9, 11]; // major scale
       const pc = (midiNote - keyRoot + 12) % 12;
-      const degree = scale.indexOf(pc) + 1 || "x"; // x = chromatic or out of scale
+      const degree = scale.indexOf(pc) + 1 || "x"; // x = accidental
       const octave = Math.floor(midiNote / 12) - 1;
       return [degree, octave];
     }
@@ -67,7 +79,7 @@
       // Time Signatures
       output.time_signatures = midi.header.timeSignatures.map(t => `${t.timeSignature[0]}/${t.timeSignature[1]}`);
 
-      // Track (first non-empty)
+      // Track (first with notes)
       const track = midi.tracks.find(t => t.notes.length > 0);
       if (!track) {
         document.getElementById("output").textContent = "No valid notes found in file.";
@@ -76,7 +88,6 @@
 
       const ppq = midi.header.ppq;
       const notes = track.notes;
-
       const grouped = groupSimultaneous(notes);
 
       const note_pitches = [];
@@ -86,12 +97,17 @@
 
       grouped.forEach(group => {
         const pitches = group.map(n => n.midi).sort((a, b) => a - b);
-        const durations = group.map(n => toFraction(n.ticks, ppq));
-        const jianpu = group.map(n => [toJianpu(n.midi)[0], toFraction(n.ticks, ppq)]);
+        const labels = group.map(n => getDurationLabel(n.ticks, ppq));
+        const jianpuPairs = group.map(n => {
+          const [deg, oct] = toJianpu(n.midi);
+          const val = getDurationLabel(n.ticks, ppq);
+          return [deg, val];
+        });
+
         note_pitches.push(pitches.length > 1 ? pitches : pitches[0]);
-        note_values.push(durations.length > 1 ? durations : durations[0]);
+        note_values.push(labels.length > 1 ? labels : labels[0]);
         note_number.push(group.map(n => toJianpu(n.midi)));
-        grouped_notes.push(jianpu);
+        grouped_notes.push(jianpuPairs);
       });
 
       output.note_pitches = note_pitches;
