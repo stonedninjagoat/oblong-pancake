@@ -1,167 +1,49 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8" />
-  <title>MIDI File Validator</title>
-  <script src="https://cdn.jsdelivr.net/npm/@tonejs/midi@2.0.27/build/Midi.min.js"></script>
-  <style>
-    body { font-family: Arial, sans-serif; padding: 20px; }
-    input { margin-bottom: 20px; }
-    .success { color: green; white-space: pre-wrap; }
-    .error { color: red; white-space: pre-wrap; }
-  </style>
-</head>
-<body>
-  <h1>MIDI File Validator</h1>
-  <input type="file" id="midiInput" multiple accept=".mid,.midi" />
-  <div id="results"></div>
+// Get BPM robustly
+const tempos = Array.isArray(midi.header.tempos) ? midi.header.tempos : [];
+let bpm = 120;
+let bpmSource = "default (120)";
+if (tempos.length === 1 && typeof tempos[0].bpm === "number") {
+  bpm = tempos[0].bpm;
+  bpmSource = bpm.toFixed(2);
+} else if (tempos.length > 1 && typeof tempos[0].bpm === "number") {
+  bpm = tempos[0].bpm;
+  bpmSource = `multiple detected, using first (${bpm.toFixed(2)})`;
+}
 
-  <script>
-    // Convert duration (seconds) to musical notation based on quarter note length
-    function durationToNotation(duration, quarterLength) {
-      if (!quarterLength || quarterLength <= 0) return duration.toFixed(3);
+// Quarter note length in seconds (based on BPM)
+const quarterNoteLength = bpm > 0 ? 60 / bpm : 0.5; // fallback quarter length
 
-      const ratio = duration / quarterLength;
-      const roundRatio = Math.round(ratio * 8) / 8; // round to nearest 1/8
+// Modified durationToNotation to guard against invalid input
+function durationToNotation(duration, quarterLength) {
+  if (!quarterLength || quarterLength <= 0 || typeof duration !== "number" || duration <= 0) return duration.toFixed ? duration.toFixed(3) : String(duration);
 
-      const noteMap = [
-        { name: "whole (4/4)", value: 4 },
-        { name: "dotted half (3/4)", value: 3 },
-        { name: "half (2/4)", value: 2 },
-        { name: "dotted quarter (1.5 1/4)", value: 1.5 },
-        { name: "quarter (1/4)", value: 1 },
-        { name: "dotted eighth (0.75 1/8)", value: 0.75 },
-        { name: "eighth (1/8)", value: 0.5 },
-        { name: "sixteenth (1/16)", value: 0.25 },
-      ];
+  const ratio = duration / quarterLength;
+  const roundRatio = Math.round(ratio * 8) / 8; // round to nearest 1/8
 
-      let closest = null;
-      let minDiff = Infinity;
-      for (const note of noteMap) {
-        const diff = Math.abs(note.value - roundRatio);
-        if (diff < minDiff) {
-          minDiff = diff;
-          closest = note;
-        }
-      }
+  const noteMap = [
+    { name: "whole (4/4)", value: 4 },
+    { name: "dotted half (3/4)", value: 3 },
+    { name: "half (2/4)", value: 2 },
+    { name: "dotted quarter (1.5 1/4)", value: 1.5 },
+    { name: "quarter (1/4)", value: 1 },
+    { name: "dotted eighth (0.75 1/8)", value: 0.75 },
+    { name: "eighth (1/8)", value: 0.5 },
+    { name: "sixteenth (1/16)", value: 0.25 },
+  ];
 
-      if (minDiff < 0.1) {
-        return `${closest.name} (~${roundRatio.toFixed(2)})`;
-      }
-
-      return ratio.toFixed(3);
+  let closest = null;
+  let minDiff = Infinity;
+  for (const note of noteMap) {
+    const diff = Math.abs(note.value - roundRatio);
+    if (diff < minDiff) {
+      minDiff = diff;
+      closest = note;
     }
+  }
 
-    // Extract time signatures from all tracks' meta events
-    function getTimeSignatures(midi) {
-      const timeSigs = [];
+  if (minDiff < 0.1) {
+    return `${closest.name} (~${roundRatio.toFixed(2)})`;
+  }
 
-      for (const track of midi.tracks) {
-        if (track.meta) {
-          for (const event of track.meta) {
-            if (event.type === "timeSignature") {
-              const seconds = midi.ticksToSeconds(event.ticks);
-              timeSigs.push({
-                time: seconds,
-                numerator: event.timeSignature[0],
-                denominator: event.timeSignature[1]
-              });
-            }
-          }
-        }
-      }
-
-      return timeSigs.sort((a, b) => a.time - b.time);
-    }
-
-    document.getElementById("midiInput").addEventListener("change", async (event) => {
-      const resultsDiv = document.getElementById("results");
-      resultsDiv.innerHTML = "";
-
-      for (const file of event.target.files) {
-        const reader = new FileReader();
-        reader.onload = async (e) => {
-          try {
-            const midi = new Midi(e.target.result);
-            const fileName = file.name;
-            const originalTrackCount = midi.tracks.length;
-            let messages = [];
-
-            // Merge tracks if more than 1
-            if (originalTrackCount > 1) {
-              const mergedTrack = midi.tracks.reduce((merged, current) => {
-                merged.notes.push(...current.notes);
-                return merged;
-              }, new Midi().addTrack());
-              midi.tracks = [mergedTrack];
-              messages.push("merge success");
-            }
-
-            // Check for percussion (channel 9 = percussion)
-            const isPercussive = midi.tracks[0].notes.some(note => note.channel === 9);
-            if (isPercussive) {
-              messages.unshift(`${fileName}: percussive`);
-            }
-
-            // Get BPM
-            let bpm = 120;
-            let bpmSource = "default (120)";
-            const tempos = midi.header.tempos;
-            if (tempos.length === 1) {
-              bpm = tempos[0].bpm;
-              bpmSource = bpm.toFixed(2);
-            } else if (tempos.length > 1) {
-              bpm = tempos[0].bpm;
-              bpmSource = `multiple detected, using first (${bpm.toFixed(2)})`;
-            }
-
-            // Get time signatures correctly
-            const timeSignaturesData = getTimeSignatures(midi);
-            const timeSignatures = timeSignaturesData.length
-              ? timeSignaturesData.map(sig => `at ${sig.time.toFixed(3)}s = ${sig.numerator}/${sig.denominator}`).join(", ")
-              : "none";
-
-            // Notes and data
-            const notes = midi.tracks[0].notes;
-
-            // Unique sorted MIDI notes
-            const uniqueMidiNotes = [...new Set(notes.map(n => n.midi))].sort((a,b) => a-b);
-
-            // Quarter note length in seconds (based on BPM)
-            const quarterNoteLength = 60 / bpm;
-
-            // Unique note durations with musical notation
-            const uniqueDurations = [...new Set(notes.map(n => n.duration))].sort((a,b) => a-b);
-            const durationsNotation = uniqueDurations.map(dur =>
-              `${dur.toFixed(3)}s = ${durationToNotation(dur, quarterNoteLength)}`
-            );
-
-            // Notes list [midi#, duration]
-            const noteList = notes.map(n =>
-              `[${n.midi}, ${n.duration.toFixed(3)}s]`
-            ).join(", ");
-
-            // Compose output string
-            const baseInfo =
-              `BPM: ${bpmSource}\n` +
-              `Tracks: ${originalTrackCount} → ${midi.tracks.length}\n` +
-              `Time Signatures: ${timeSignatures}\n` +
-              `Unique MIDI Notes: ${uniqueMidiNotes.join(", ")}\n` +
-              `Unique Note Durations:\n  ${durationsNotation.join("\n  ")}\n` +
-              `Notes: ${noteList}`;
-
-            const resultMsg = isPercussive
-              ? `<div class="error"><strong>${fileName}</strong>: ${messages.join(", ")}\n${baseInfo}</div>`
-              : `<div class="success"><strong>${fileName}</strong>: upload success\n${messages.join(", ")}\n${baseInfo}</div>`;
-
-            resultsDiv.innerHTML += resultMsg;
-          } catch (err) {
-            resultsDiv.innerHTML += `<div class="error"><strong>${file.name}</strong>: failed to read MIDI file (${err.message})</div>`;
-          }
-        };
-        reader.readAsArrayBuffer(file);
-      }
-    });
-  </script>
-</body>
-</html>
+  return ratio.toFixed(3);
+}
