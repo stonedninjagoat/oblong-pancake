@@ -2,73 +2,66 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>MIDI Validator</title>
+  <title>MIDI File Validator</title>
   <script src="https://cdn.jsdelivr.net/npm/@tonejs/midi@2.0.27/build/Midi.min.js"></script>
   <style>
-    body { font-family: sans-serif; padding: 20px; }
+    body { font-family: Arial, sans-serif; padding: 20px; }
+    input { margin-bottom: 20px; }
     .success { color: green; }
     .error { color: red; }
-    pre { background: #f0f0f0; padding: 10px; white-space: pre-wrap; }
+    pre { background: #f0f0f0; padding: 10px; }
   </style>
 </head>
 <body>
-  <h2>Upload MIDI Files</h2>
-  <input type="file" id="fileInput" multiple accept=".mid,.midi">
-  <ul id="resultList"></ul>
+  <h1>MIDI File Validator</h1>
+  <input type="file" id="midiInput" multiple accept=".mid,.midi">
+  <div id="results"></div>
 
   <script>
-    const fileInput = document.getElementById("fileInput");
-    const resultList = document.getElementById("resultList");
+    document.getElementById("midiInput").addEventListener("change", async (event) => {
+      const resultsDiv = document.getElementById("results");
+      resultsDiv.innerHTML = "";
 
-    fileInput.addEventListener("change", async (event) => {
-      resultList.innerHTML = "";
-      const files = event.target.files;
+      for (const file of event.target.files) {
+        const reader = new FileReader();
+        reader.onload = async (e) => {
+          try {
+            const midi = new Midi(e.target.result);
+            const trackCount = midi.tracks.length;
+            const tempos = midi.header.tempos;
+            const bpmList = tempos.map(t => t.bpm);
+            const uniqueBPMs = [...new Set(bpmList.map(bpm => bpm.toFixed(2)))];
 
-      for (const file of files) {
-        const li = document.createElement("li");
-        const pre = document.createElement("pre");
-        const errors = [];
-        let bpmDisplay = "unknown";
-        let timeSignaturesDisplay = "none";
+            // Check if any percussive channels (channel 9 = percussion)
+            const isPercussive = midi.tracks.some(track =>
+              track.notes.some(note => note.channel === 9)
+            );
 
-        try {
-          const arrayBuffer = await file.arrayBuffer();
-          const midi = new Midi(arrayBuffer);
+            const fileName = file.name;
+            let messages = [];
 
-          const trackCount = midi.tracks.length;
-          if (trackCount !== 1) {
-            errors.push(`contains ${trackCount < 1 ? 'less' : 'more'} than 1 track`);
+            if (trackCount !== 1) {
+              messages.push(`${fileName}: contains ${trackCount < 1 ? "less" : "more"} than 1 track`);
+            }
+
+            if (isPercussive) {
+              messages.push(`${fileName}: percussive`);
+            }
+
+            if (uniqueBPMs.length !== 1) {
+              messages.push(`${fileName}: contains ${uniqueBPMs.length < 1 ? "no" : "more"} than 1 BPM`);
+            }
+
+            const resultMsg = messages.length > 0
+              ? `<div class="error"><strong>${fileName}</strong>: ${messages.join(", ")}<br>BPMs: ${uniqueBPMs.join(", ") || "none"}<br>Tracks: ${trackCount}</div>`
+              : `<div class="success"><strong>${fileName}</strong>: upload success<br>BPM: ${uniqueBPMs[0]}<br>Tracks: ${trackCount}</div>`;
+
+            resultsDiv.innerHTML += resultMsg;
+          } catch (err) {
+            resultsDiv.innerHTML += `<div class="error"><strong>${file.name}</strong>: failed to read MIDI file (${err.message})</div>`;
           }
-
-          const hasPercussion = midi.tracks.some(track =>
-            track.notes.some(note => note.channel === 9)
-          );
-          if (hasPercussion) {
-            errors.push("percussive");
-          }
-
-          const tempos = midi.header.tempos;
-          if (tempos.length !== 1) {
-            errors.push(`contains ${tempos.length < 1 ? 'less' : 'more'} than 1 BPM`);
-          } else {
-            bpmDisplay = tempos[0].bpm.toFixed(2);
-          }
-
-          if (midi.header.timeSignatures.length > 0) {
-            timeSignaturesDisplay = midi.header.timeSignatures.map(ts => `${ts.timeSignature[0]}/${ts.timeSignature[1]}`).join(", ");
-          }
-
-          const extraInfo = `Tracks: ${trackCount}\nBPM: ${bpmDisplay}\nTime Signature(s): ${timeSignaturesDisplay}`;
-
-          li.className = errors.length ? "error" : "success";
-          li.innerHTML = `<strong>${file.name}:</strong> ${errors.length ? errors.join(', ') : 'upload success'}<br><pre>${extraInfo}</pre>`;
-
-        } catch (err) {
-          li.textContent = `${file.name}: error reading MIDI`;
-          li.className = "error";
-        }
-
-        resultList.appendChild(li);
+        };
+        reader.readAsArrayBuffer(file);
       }
     });
   </script>
