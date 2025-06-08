@@ -17,15 +17,13 @@
   <div id="results"></div>
 
   <script>
-    // Converts duration (seconds) to musical notation based on quarter note length
+    // Convert duration (seconds) to musical notation based on quarter note length
     function durationToNotation(duration, quarterLength) {
       if (!quarterLength || quarterLength <= 0) return duration.toFixed(3);
 
-      // Calculate ratio to quarter note length
       const ratio = duration / quarterLength;
       const roundRatio = Math.round(ratio * 8) / 8; // round to nearest 1/8
 
-      // Common note durations as fraction of quarter note
       const noteMap = [
         { name: "whole (4/4)", value: 4 },
         { name: "dotted half (3/4)", value: 3 },
@@ -37,7 +35,6 @@
         { name: "sixteenth (1/16)", value: 0.25 },
       ];
 
-      // Find closest note duration
       let closest = null;
       let minDiff = Infinity;
       for (const note of noteMap) {
@@ -48,37 +45,34 @@
         }
       }
 
-      // If close enough to a standard note (within 0.1), return name + ratio
       if (minDiff < 0.1) {
         return `${closest.name} (~${roundRatio.toFixed(2)})`;
       }
 
-      // Otherwise show ratio only
       return ratio.toFixed(3);
     }
 
     // Extract time signatures from all tracks' meta events
     function getTimeSignatures(midi) {
       const timeSigs = [];
-    
+
       for (const track of midi.tracks) {
-        for (const event of track.meta) {
-          if (event.type === "timeSignature") {
-            // event.time is in ticks, convert to seconds:
-            const seconds = midi.ticksToSeconds(event.ticks);
-            timeSigs.push({
-              time: seconds,
-              numerator: event.timeSignature[0],   // array [num, denom]
-              denominator: event.timeSignature[1]
-            });
+        if (track.meta) {
+          for (const event of track.meta) {
+            if (event.type === "timeSignature") {
+              const seconds = midi.ticksToSeconds(event.ticks);
+              timeSigs.push({
+                time: seconds,
+                numerator: event.timeSignature[0],
+                denominator: event.timeSignature[1]
+              });
+            }
           }
         }
       }
-    
-      // Sort by time ascending
+
       return timeSigs.sort((a, b) => a.time - b.time);
     }
-    
 
     document.getElementById("midiInput").addEventListener("change", async (event) => {
       const resultsDiv = document.getElementById("results");
@@ -121,32 +115,33 @@
               bpmSource = `multiple detected, using first (${bpm.toFixed(2)})`;
             }
 
+            // Get time signatures correctly
             const timeSignaturesData = getTimeSignatures(midi);
             const timeSignatures = timeSignaturesData.length
-            ? timeSignaturesData.map(sig => `at ${sig.time.toFixed(3)}s = ${sig.numerator}/${sig.denominator}`).join(", ")
-            : "none";
+              ? timeSignaturesData.map(sig => `at ${sig.time.toFixed(3)}s = ${sig.numerator}/${sig.denominator}`).join(", ")
+              : "none";
 
-            // Notes
+            // Notes and data
             const notes = midi.tracks[0].notes;
 
-            // Unique sorted midi note numbers
-            const uniqueMidiNotes = [...new Set(notes.map(n => n.midi))].sort((a,b)=>a-b);
+            // Unique sorted MIDI notes
+            const uniqueMidiNotes = [...new Set(notes.map(n => n.midi))].sort((a,b) => a-b);
 
-            // Quarter note length in seconds = 60 / bpm
+            // Quarter note length in seconds (based on BPM)
             const quarterNoteLength = 60 / bpm;
 
-            // Note durations: map unique durations to notation
-            const uniqueDurations = [...new Set(notes.map(n => n.duration))].sort((a,b)=>a-b);
+            // Unique note durations with musical notation
+            const uniqueDurations = [...new Set(notes.map(n => n.duration))].sort((a,b) => a-b);
             const durationsNotation = uniqueDurations.map(dur =>
               `${dur.toFixed(3)}s = ${durationToNotation(dur, quarterNoteLength)}`
             );
 
-            // Notes as [midi#, duration]
+            // Notes list [midi#, duration]
             const noteList = notes.map(n =>
               `[${n.midi}, ${n.duration.toFixed(3)}s]`
             ).join(", ");
 
-            // Compose output
+            // Compose output string
             const baseInfo =
               `BPM: ${bpmSource}\n` +
               `Tracks: ${originalTrackCount} → ${midi.tracks.length}\n` +
