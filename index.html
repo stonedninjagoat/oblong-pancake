@@ -2,98 +2,104 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <title>MIDI Info Extractor</title>
+  <title>MIDI Analyzer</title>
   <script src="https://cdn.jsdelivr.net/npm/@tonejs/midi@2.0.27/build/Midi.min.js"></script>
   <style>
     body { font-family: sans-serif; padding: 20px; }
-    input { margin-bottom: 20px; }
     pre { background: #f0f0f0; padding: 10px; white-space: pre-wrap; }
   </style>
 </head>
 <body>
-  <h1>MIDI File Analyzer</h1>
-  <input type="file" id="midiFile" accept=".mid" />
-  <pre id="output">Upload a MIDI file to see its data...</pre>
+  <h2>MIDI File Analyzer</h2>
+  <input type="file" id="fileInput" accept=".mid" />
+  <pre id="output">Upload a MIDI file to begin...</pre>
 
   <script>
-    const noteToJianpu = (note, key = 0) => {
-      const scale = [0, 2, 4, 5, 7, 9, 11]; // C major scale
-      const degree = scale.indexOf((note - key + 12) % 12) + 1;
-      const octave = Math.floor(note / 12) - 1;
+    function toFraction(duration, ppq) {
+      const quarterTicks = ppq;
+      const value = duration / quarterTicks;
+
+      if (Math.abs(value - 1) < 0.01) return "1/4";
+      if (Math.abs(value - 0.5) < 0.01) return "1/8";
+      if (Math.abs(value - 0.25) < 0.01) return "1/16";
+      if (Math.abs(value - 2) < 0.01) return "1/2";
+      if (Math.abs(value - 4) < 0.01) return "1";
+      if (Math.abs(value - 1.5) < 0.01) return "dotted 1/4";
+      if (Math.abs(value - 0.333) < 0.01) return "triplet 1/4";
+      return value.toFixed(3);
+    }
+
+    function toJianpu(midiNote, keyRoot = 0) {
+      const scale = [0, 2, 4, 5, 7, 9, 11];
+      const pc = (midiNote - keyRoot + 12) % 12;
+      const degree = scale.indexOf(pc) + 1 || "x"; // x = chromatic or out of scale
+      const octave = Math.floor(midiNote / 12) - 1;
       return [degree, octave];
-    };
+    }
 
-    const getDurationLabel = (ticks, ppq, timeSig) => {
-      const beatTicks = ppq;
-      const quarterNote = 1 / timeSig[1];
-      const base = ticks / beatTicks;
+    function groupSimultaneous(notes, tolerance = 0.01) {
+      const groups = [];
+      let group = [notes[0]];
 
-      if (base === 0.25) return '1/4';
-      if (base === 0.5) return '1/2';
-      if (base === 0.125) return '1/8';
-      if (base === 0.375) return 'dotted 1/4';
-      if (base === 1 / 3) return 'triplet 1/4';
-      return base.toFixed(3);
-    };
+      for (let i = 1; i < notes.length; i++) {
+        if (Math.abs(notes[i].time - notes[i - 1].time) < tolerance) {
+          group.push(notes[i]);
+        } else {
+          groups.push(group);
+          group = [notes[i]];
+        }
+      }
+      if (group.length) groups.push(group);
+      return groups;
+    }
 
-    document.getElementById('midiFile').addEventListener('change', async (event) => {
-      const file = event.target.files[0];
-      if (!file) return;
-
+    document.getElementById("fileInput").addEventListener("change", async (e) => {
+      const file = e.target.files[0];
       const arrayBuffer = await file.arrayBuffer();
       const midi = new Midi(arrayBuffer);
 
+      const output = {};
+
+      // Tempo
+      const tempoEvent = midi.header.tempos[0];
+      output.tempo = `BPM = ${tempoEvent ? tempoEvent.bpm.toFixed(2) : "120 (default)"}`;
+
+      // Time Signatures
+      output.time_signatures = midi.header.timeSignatures.map(t => `${t.timeSignature[0]}/${t.timeSignature[1]}`);
+
+      // Track (first non-empty)
       const track = midi.tracks.find(t => t.notes.length > 0);
-      if (!track) return document.getElementById('output').textContent = "No note data.";
+      if (!track) {
+        document.getElementById("output").textContent = "No valid notes found in file.";
+        return;
+      }
 
       const ppq = midi.header.ppq;
-      const bpm = midi.header.tempos[0]?.bpm || 120;
-      const timeSignatures = midi.header.timeSignatures.map(sig => `${sig.timeSignature[0]}/${sig.timeSignature[1]}`);
-      const noteEvents = track.notes.map(n => ({
-        pitch: n.midi,
-        time: n.time,
-        durationTicks: n.ticks,
-        duration: n.duration,
-        label: getDurationLabel(n.ticks, ppq, [4, 4])
-      }));
+      const notes = track.notes;
+
+      const grouped = groupSimultaneous(notes);
 
       const note_pitches = [];
       const note_values = [];
-      const jianpu = [];
-
-      for (let n of noteEvents) {
-        note_pitches.push(n.pitch);
-        note_values.push(n.label);
-        jianpu.push(noteToJianpu(n.pitch));
-      }
-
-      // Grouped notes by time
+      const note_number = [];
       const grouped_notes = [];
-      let currentTime = 0;
-      let buffer = [];
 
-      for (let i = 0; i < noteEvents.length; i++) {
-        const curr = noteEvents[i];
-        const next = noteEvents[i + 1];
+      grouped.forEach(group => {
+        const pitches = group.map(n => n.midi).sort((a, b) => a - b);
+        const durations = group.map(n => toFraction(n.ticks, ppq));
+        const jianpu = group.map(n => [toJianpu(n.midi)[0], toFraction(n.ticks, ppq)]);
+        note_pitches.push(pitches.length > 1 ? pitches : pitches[0]);
+        note_values.push(durations.length > 1 ? durations : durations[0]);
+        note_number.push(group.map(n => toJianpu(n.midi)));
+        grouped_notes.push(jianpu);
+      });
 
-        buffer.push([[...noteToJianpu(curr.pitch)], curr.label]);
+      output.note_pitches = note_pitches;
+      output.note_values = note_values;
+      output.note_number = note_number;
+      output.grouped_notes = grouped_notes;
 
-        if (!next || next.time > curr.time + 0.01) {
-          grouped_notes.push(buffer);
-          buffer = [];
-        }
-      }
-
-      const output = {
-        tempo: `BPM = ${bpm}`,
-        time_signatures: timeSignatures,
-        note_pitches: note_pitches,
-        note_values: note_values,
-        note_number: jianpu,
-        grouped_notes: grouped_notes
-      };
-
-      document.getElementById('output').textContent = JSON.stringify(output, null, 2);
+      document.getElementById("output").textContent = JSON.stringify(output, null, 2);
     });
   </script>
 </body>
