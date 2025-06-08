@@ -20,59 +20,6 @@
     const fileInput = document.getElementById("fileInput");
     const resultList = document.getElementById("resultList");
 
-    function getNoteLength(note, ppq) {
-      const ticks = note.durationTicks;
-      const baseDur = ticks / ppq;
-      const durationMap = {
-        4: "whole note",
-        2: "half note",
-        1: "quarter note",
-        0.5: "eighth note",
-        0.25: "sixteenth note",
-        0.125: "thirty-second note"
-      };
-
-      for (let val of Object.keys(durationMap)) {
-        const numVal = parseFloat(val);
-        if (Math.abs(baseDur - numVal) < 0.01) {
-          return `${numVal} (${durationMap[val]})`;
-        }
-        if (Math.abs(baseDur - numVal * 1.5) < 0.01) {
-          return `${(numVal * 1.5).toFixed(4)} (dotted ${durationMap[val]})`;
-        }
-        if (Math.abs(baseDur - numVal / 3) < 0.01) {
-          return `${(numVal / 3).toFixed(4)} (triplet ${durationMap[val]})`;
-        }
-      }
-
-      return `${baseDur.toFixed(4)} (unknown)`;
-    }
-
-    function midiToJianpu(midiNote) {
-      const scale = [0, 2, 4, 5, 7, 9, 11];
-      const base = 60;
-      const rel = (midiNote - base + 120) % 12;
-      const octave = Math.floor((midiNote - base) / 12) + 4;
-      const degree = scale.indexOf(rel);
-      return degree >= 0 ? [degree + 1, octave] : ["x", octave];
-    }
-
-    function generateCSV(data) {
-      let csv = "Pitch (MIDI),Note Value,Jianpu Degree,Jianpu Octave\n";
-      data.forEach(row => {
-        csv += `${row.pitch},${row.noteValue},${row.degree},${row.octave}\n`;
-      });
-      return csv;
-    }
-
-    function downloadCSV(content, filename) {
-      const blob = new Blob([content], { type: 'text/csv' });
-      const a = document.createElement('a');
-      a.href = URL.createObjectURL(blob);
-      a.download = filename;
-      a.click();
-    }
-
     fileInput.addEventListener("change", async (event) => {
       resultList.innerHTML = "";
       const files = event.target.files;
@@ -82,16 +29,17 @@
         const pre = document.createElement("pre");
         const errors = [];
         let bpmDisplay = "unknown";
-        let dataOutput = {};
 
         try {
           const arrayBuffer = await file.arrayBuffer();
           const midi = new Midi(arrayBuffer);
 
+          // Track count check
           if (midi.tracks.length !== 1) {
             errors.push(`contains ${midi.tracks.length < 1 ? 'less' : 'more'} than 1 track`);
           }
 
+          // Percussion channel check (channel 10 is index 9)
           const hasPercussion = midi.tracks.some(track =>
             track.notes.some(note => note.channel === 9)
           );
@@ -99,73 +47,17 @@
             errors.push("percussive");
           }
 
+          // BPM check
           const tempos = midi.header.tempos;
-          let bpm = 120;
-          
-          if (tempos.length === 0) {
-            bpmDisplay = "120 (default)";
-          } else if (tempos.length === 1) {
-            bpm = tempos[0].bpm;
-            bpmDisplay = bpm.toFixed(2);
+          if (tempos.length !== 1) {
+            errors.push(`contains ${tempos.length < 1 ? 'less' : 'more'} than 1 BPM`);
           } else {
-            // Calculate duration (in ticks) each BPM lasts
-            const bpmDurations = {};
-          
-            for (let i = 0; i < tempos.length; i++) {
-              const current = tempos[i];
-              const nextTick = tempos[i + 1] ? tempos[i + 1].ticks : midi.durationTicks;
-              const tickSpan = nextTick - current.ticks;
-          
-              const bpmKey = current.bpm.toFixed(2);
-              if (!bpmDurations[bpmKey]) bpmDurations[bpmKey] = 0;
-              bpmDurations[bpmKey] += tickSpan;
-            }
-          
-            // Find the BPM with the most ticks
-            let mostUsedBPM = Object.entries(bpmDurations).sort((a, b) => b[1] - a[1])[0][0];
-            bpm = parseFloat(mostUsedBPM);
-          
-            // Overwrite all tempos with just one global BPM
-            midi.header.tempos = [{ bpm: bpm, ticks: 0 }];
-          
-            // NOTE: This only changes the in-memory MIDI. You'll need to re-export to persist.
-            bpmDisplay = Object.keys(bpmDurations).join(", ") + ` → set to ${bpm.toFixed(2)}`;
+            bpmDisplay = tempos[0].bpm.toFixed(2);
           }
 
-          if (errors.length === 0) {
-            const track = midi.tracks[0];
-            const notes = track.notes;
-            const ppq = midi.header.ppq;
-            const parsedNotes = notes.map(note => {
-              const [degree, octave] = midiToJianpu(note.midi);
-              return {
-                pitch: note.midi,
-                noteValue: getNoteLength(note, ppq),
-                degree,
-                octave
-              };
-            });
-
-            const time_signatures = midi.header.timeSignatures.map(ts => `${ts.timeSignature[0]}/${ts.timeSignature[1]}`);
-
-            dataOutput = {
-              tempo: `BPM = ${bpm}`,
-              time_signatures,
-              notes: parsedNotes
-            };
-
-            pre.textContent = JSON.stringify(dataOutput, null, 2);
-            li.appendChild(pre);
-
-            const csvContent = generateCSV(parsedNotes);
-            const downloadBtn = document.createElement("button");
-            downloadBtn.textContent = "Download CSV";
-            downloadBtn.onclick = () => downloadCSV(csvContent, file.name + ".csv");
-            li.appendChild(downloadBtn);
-          }
-
+          // Final result
           li.className = errors.length ? "error" : "success";
-          li.prepend(`${file.name}: ${errors.length ? errors.join(', ') : 'upload success'} [BPM: ${bpmDisplay}]\n`);
+          li.textContent = `${file.name}: ${errors.length ? errors.join(', ') : 'upload success'}${bpmDisplay !== "unknown" ? ` [BPM: ${bpmDisplay}]` : ''}`;
 
         } catch (err) {
           li.textContent = `${file.name}: error reading MIDI`;
