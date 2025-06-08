@@ -1,122 +1,110 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <title>MIDI Analyzer</title>
+  <meta charset="UTF-8">
+  <title>MIDI Combiner Tool</title>
   <script src="https://cdn.jsdelivr.net/npm/@tonejs/midi@2.0.27/build/Midi.min.js"></script>
   <style>
     body { font-family: sans-serif; padding: 20px; }
-    pre { background: #f4f4f4; padding: 10px; white-space: pre-wrap; }
+    input, button { margin: 10px 0; }
   </style>
 </head>
 <body>
-  <h2>MIDI File Analyzer</h2>
-  <input type="file" id="fileInput" accept=".mid" />
-  <pre id="output">Upload a MIDI file to begin...</pre>
+  <h2>MIDI Combiner Tool</h2>
+  <input type="file" id="midiFiles" multiple accept=".mid,.midi">
+  <br>
+  <button onclick="processMIDIs()">Process and Export Combined MIDI</button>
+  <p id="status"></p>
 
   <script>
-    function round(val, tol = 0.01) {
-      return Math.abs(val - Math.round(val)) < tol ? Math.round(val) : val;
+    function transposeToCMajor(track) {
+      // Naively assumes the track is in a major key. Detects root and shifts to C.
+      const notes = track.notes;
+      if (notes.length === 0) return;
+
+      // Get the most common note pitch class
+      const pitchClasses = new Array(12).fill(0);
+      notes.forEach(n => pitchClasses[n.midi % 12]++);
+      const mostCommon = pitchClasses.indexOf(Math.max(...pitchClasses));
+
+      const shift = (0 - mostCommon + 12) % 12; // shift root to C (0)
+      notes.forEach(n => n.midi += shift);
     }
 
-    function getDurationLabel(ticks, ppq) {
-      const base = ticks / ppq;
-
-      const standard = {
-        4: "whole",
-        2: "1/2",
-        1: "1/4",
-        0.5: "1/8",
-        0.25: "1/16",
-        0.125: "1/32"
-      };
-
-      for (let dur in standard) {
-        const f = parseFloat(dur);
-        if (Math.abs(base - f) < 0.01) return standard[dur];
-        if (Math.abs(base - f * 1.5) < 0.01) return `dotted ${standard[dur]}`;
-        if (Math.abs(base - f / 3) < 0.01) return `triplet ${standard[dur]}`;
-      }
-
-      return `${base.toFixed(3)} quarter`;
-    }
-
-    function toJianpu(midiNote, keyRoot = 0) {
-      const scale = [0, 2, 4, 5, 7, 9, 11]; // major scale
-      const pc = (midiNote - keyRoot + 12) % 12;
-      const degree = scale.indexOf(pc) + 1 || "x"; // x = accidental
-      const octave = Math.floor(midiNote / 12) - 1;
-      return [degree, octave];
-    }
-
-    function groupSimultaneous(notes, tolerance = 0.01) {
-      const groups = [];
-      let group = [notes[0]];
-
-      for (let i = 1; i < notes.length; i++) {
-        if (Math.abs(notes[i].time - notes[i - 1].time) < tolerance) {
-          group.push(notes[i]);
-        } else {
-          groups.push(group);
-          group = [notes[i]];
-        }
-      }
-      if (group.length) groups.push(group);
-      return groups;
-    }
-
-    document.getElementById("fileInput").addEventListener("change", async (e) => {
-      const file = e.target.files[0];
-      const arrayBuffer = await file.arrayBuffer();
-      const midi = new Midi(arrayBuffer);
-
-      const output = {};
-
-      // Tempo
-      const tempoEvent = midi.header.tempos[0];
-      output.tempo = `BPM = ${tempoEvent ? tempoEvent.bpm.toFixed(2) : "120 (default)"}`;
-
-      // Time Signatures
-      output.time_signatures = midi.header.timeSignatures.map(t => `${t.timeSignature[0]}/${t.timeSignature[1]}`);
-
-      // Track (first with notes)
-      const track = midi.tracks.find(t => t.notes.length > 0);
-      if (!track) {
-        document.getElementById("output").textContent = "No valid notes found in file.";
+    async function processMIDIs() {
+      const files = document.getElementById("midiFiles").files;
+      if (files.length === 0) {
+        document.getElementById("status").innerText = "Please upload MIDI files.";
         return;
       }
 
-      const ppq = midi.header.ppq;
-      const notes = track.notes;
-      const grouped = groupSimultaneous(notes);
+      const midiList = [];
+      const bpms = [];
 
-      const note_pitches = [];
-      const note_values = [];
-      const note_number = [];
-      const grouped_notes = [];
+      // Load and analyze all MIDI files
+      for (const file of files) {
+        const arrayBuffer = await file.arrayBuffer();
+        const midi = new Midi(arrayBuffer);
+        if (midi.header.tempos.length > 0) {
+          midi.header.tempos.forEach(t => bpms.push(t.bpm));
+        } else {
+          bpms.push(120); // default if missing
+        }
 
-      grouped.forEach(group => {
-        const pitches = group.map(n => n.midi).sort((a, b) => a - b);
-        const labels = group.map(n => getDurationLabel(n.ticks, ppq));
-        const jianpuPairs = group.map(n => {
-          const [deg, oct] = toJianpu(n.midi);
-          const val = getDurationLabel(n.ticks, ppq);
-          return [deg, val];
-        });
+        // Transpose all tracks in the MIDI to C major
+        midi.tracks.forEach(track => transposeToCMajor(track));
+        midiList.push(midi);
+      }
 
-        note_pitches.push(pitches.length > 1 ? pitches : pitches[0]);
-        note_values.push(labels.length > 1 ? labels : labels[0]);
-        note_number.push(group.map(n => toJianpu(n.midi)));
-        grouped_notes.push(jianpuPairs);
-      });
+      // Calculate average BPM
+      const avgBPM = bpms.reduce((a, b) => a + b, 0) / bpms.length;
 
-      output.note_pitches = note_pitches;
-      output.note_values = note_values;
-      output.note_number = note_number;
-      output.grouped_notes = grouped_notes;
+      // Create new MIDI file and set tempo
+      const combinedMidi = new Midi();
+      combinedMidi.header.setTempo(avgBPM);
 
-      document.getElementById("output").textContent = JSON.stringify(output, null, 2);
-    });
+      let currentTime = 0;
+
+      for (const midi of midiList) {
+        for (const track of midi.tracks) {
+          const newTrack = combinedMidi.addTrack();
+
+          for (const note of track.notes) {
+            newTrack.addNote({
+              midi: note.midi,
+              time: note.time + currentTime,
+              duration: note.duration,
+              velocity: note.velocity
+            });
+          }
+
+          for (const cc of track.controlChanges) {
+            Object.values(cc).forEach(event => {
+              newTrack.addCC({
+                number: event.number,
+                value: event.value,
+                time: event.time + currentTime
+              });
+            });
+          }
+        }
+
+        // Update current time to append next MIDI after this one
+        const midiDuration = midi.duration;
+        currentTime += midiDuration;
+      }
+
+      // Export the combined MIDI
+      const bytes = combinedMidi.toArray();
+      const blob = new Blob([bytes], { type: 'audio/midi' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "combined_standardized.mid";
+      a.click();
+
+      document.getElementById("status").innerText = "Exported combined MIDI!";
+    }
   </script>
 </body>
 </html>
