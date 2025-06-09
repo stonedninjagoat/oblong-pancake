@@ -1,234 +1,64 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>MIDI Tempo & Time Signature Extractor & CSV Export</title>
-<script src="https://cdn.jsdelivr.net/npm/@tonejs/midi@2.0.27/build/Midi.min.js"></script>
-<style>
-  body {
-    font-family: Arial, sans-serif;
-    padding: 20px;
-    max-width: 800px;
-    margin: auto;
-  }
-  table {
-    border-collapse: collapse;
-    margin-top: 10px;
-  }
-  table, th, td {
-    border: 1px solid #333;
-  }
-  th, td {
-    padding: 6px 10px;
-    text-align: center;
-  }
-  button {
-    margin-top: 15px;
-    padding: 8px 15px;
-    font-size: 1rem;
-  }
-</style>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>MIDI to CSV Tool</title>
+  <script src="https://cdn.jsdelivr.net/npm/@tonejs/midi@2.0.27/build/Midi.min.js"></script>
+  <style>
+    body { font-family: sans-serif; padding: 20px; }
+    input, button { margin: 10px 0; }
+    #output { white-space: pre-wrap; margin-top: 20px; }
+  </style>
 </head>
 <body>
 
-<h2>MIDI Tempo & Time Signature Extractor & CSV Export</h2>
+  <h1>MIDI to CSV Converter</h1>
 
-<input type="file" id="midiFile" accept=".mid,.midi" />
-<div id="output"></div>
+  <input type="file" id="midiInput" accept=".mid,.midi" />
+  <button id="downloadCsv">Download CSV</button>
 
-<button id="exportCsvBtn" disabled>Export Tempo & Time Signature Data as CSV</button>
+  <div id="output"></div>
 
-<script>
-  const midiFileInput = document.getElementById('midiFile');
-  const outputDiv = document.getElementById('output');
-  const exportCsvBtn = document.getElementById('exportCsvBtn');
+  <script>
+    let csvData = "";
 
-  let temposToExport = [];
-  let timeSigsToExport = [];
+    document.getElementById('midiInput').addEventListener('change', async (event) => {
+      const file = event.target.files[0];
+      if (!file) return;
 
-  midiFileInput.addEventListener('change', async (event) => {
-    const file = event.target.files[0];
-    if (!file) return;
+      const arrayBuffer = await file.arrayBuffer();
+      const midi = new Midi(arrayBuffer);
 
-    const arrayBuffer = await file.arrayBuffer();
-    const midi = new Midi(arrayBuffer);
+      const rows = [["Track", "Start (s)", "Pitch", "Duration (s)"]];
 
-    // --- Extract time signatures ---
-    // midi.header.timeSignatures is array of { ticks, time, numerator, denominator }
-    let timeSignatures = midi.header.timeSignatures;
-    if (timeSignatures.length === 0) {
-      // Default to 4/4 at tick 0 if none
-      timeSignatures = [{ ticks: 0, time: 0, numerator: 4, denominator: 4 }];
-    }
-    timeSigsToExport = timeSignatures;
-
-    // --- Extract tempos ---
-    // midi.header.tempos: array of { ticks, time, bpm }
-    // If none, default 120 bpm at tick 0
-    let tempos = midi.header.tempos;
-    if (tempos.length === 0) {
-      tempos = [{ ticks: 0, time: 0, bpm: 120 }];
-    }
-
-    // Remove duplicate tempos with the same bpm, choosing the one covering most measures
-
-    // Helper: calculate measure length in ticks for a given time signature
-    // measures length = numerator * ticksPerBeat * (4 / denominator)
-    const ticksPerBeat = midi.header.ppq;
-
-    // Build measure boundaries array based on time signatures, to help measure coverage calc
-    // We'll assume time signatures change at ticks in ascending order.
-    // Calculate measure lengths for each segment until next TS or end of midi
-
-    // MIDI total length in ticks
-    let midiEndTick = 0;
-    midi.tracks.forEach(track => {
-      track.notes.forEach(note => {
-        const noteEnd = note.ticks + note.durationTicks;
-        if (noteEnd > midiEndTick) midiEndTick = noteEnd;
+      midi.tracks.forEach((track, tIndex) => {
+        track.notes.forEach(note => {
+          rows.push([
+            tIndex + 1,
+            note.time.toFixed(3),
+            note.name,
+            note.duration.toFixed(3)
+          ]);
+        });
       });
-    });
-    // fallback if no notes
-    if (midiEndTick === 0) {
-      // Use the last tempo tick + some ticks if no notes found
-      midiEndTick = (tempos.length > 0 ? tempos[tempos.length - 1].ticks + ticksPerBeat * 4 : ticksPerBeat * 100);
-    }
 
-    // Sort time signatures by ticks ascending
-    timeSignatures.sort((a, b) => a.ticks - b.ticks);
-
-    // Add an artificial end marker for last segment
-    const tsSegments = [];
-    for (let i = 0; i < timeSignatures.length; i++) {
-      const ts = timeSignatures[i];
-      const nextTick = (i + 1 < timeSignatures.length) ? timeSignatures[i + 1].ticks : midiEndTick;
-      tsSegments.push({
-        numerator: ts.numerator,
-        denominator: ts.denominator,
-        startTick: ts.ticks,
-        endTick: nextTick
-      });
-    }
-
-    // For each tempo bpm, sum how many measures it covers
-    // To estimate coverage, for each tempo instance, calculate how many measures are between its tick and the next tempo tick or midiEndTick
-
-    // Sort tempos by ticks ascending
-    tempos.sort((a, b) => a.ticks - b.ticks);
-
-    // Create tempo coverage intervals (tick ranges)
-    const tempoIntervals = tempos.map((tempo, i) => {
-      return {
-        bpm: tempo.bpm,
-        startTick: tempo.ticks,
-        endTick: (i + 1 < tempos.length) ? tempos[i + 1].ticks : midiEndTick
-      };
+      csvData = rows.map(r => r.join(",")).join("\n");
+      document.getElementById('output').textContent = csvData;
     });
 
-    // Function to calculate number of measures in a tick range given time signature segments
-    function countMeasuresInRange(startTick, endTick) {
-      let measuresCount = 0;
-      for (const seg of tsSegments) {
-        // Calculate overlap of [startTick, endTick) with [seg.startTick, seg.endTick)
-        const overlapStart = Math.max(startTick, seg.startTick);
-        const overlapEnd = Math.min(endTick, seg.endTick);
-        if (overlapEnd <= overlapStart) continue;
-
-        const segmentTicks = overlapEnd - overlapStart;
-        const measureLengthTicks = seg.numerator * ticksPerBeat * (4 / seg.denominator);
-        measuresCount += segmentTicks / measureLengthTicks;
-      }
-      return measuresCount;
-    }
-
-    // Aggregate tempos by bpm, summing measures covered
-    const tempoBpmMap = new Map();
-    tempoIntervals.forEach(interval => {
-      const measures = countMeasuresInRange(interval.startTick, interval.endTick);
-      if (!tempoBpmMap.has(interval.bpm)) {
-        tempoBpmMap.set(interval.bpm, measures);
-      } else {
-        tempoBpmMap.set(interval.bpm, tempoBpmMap.get(interval.bpm) + measures);
-      }
+    document.getElementById('downloadCsv').addEventListener('click', () => {
+      if (!csvData) return;
+      const blob = new Blob([csvData], { type: 'text/csv' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'midi_data.csv';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
     });
-
-    // Now from tempos with same bpm, pick the tempo instance that covers the most measures (for each bpm, we keep one entry)
-    // Actually we aggregated measures per bpm, so just pick unique bpm entries sorted by coverage (descending)
-    // But user asked to remove duplicate tempos and keep the one covering most measures:
-    // We have measures aggregated per bpm, so just list unique bpm tempos with total measures covered.
-
-    // Build array of unique tempos with coverage measures
-    const uniqueTempos = [];
-    for (const [bpm, measures] of tempoBpmMap.entries()) {
-      uniqueTempos.push({ bpm, measures });
-    }
-    uniqueTempos.sort((a, b) => b.measures - a.measures);
-
-    temposToExport = uniqueTempos; // store for export
-
-    // Display results:
-
-    // Time Signatures Table
-    let html = `<h3>Time Signatures (${timeSignatures.length})</h3>`;
-    html += `<table><thead><tr><th>#</th><th>Tick Position</th><th>Time (seconds)</th><th>Numerator</th><th>Denominator</th></tr></thead><tbody>`;
-    timeSignatures.forEach((ts, i) => {
-      html += `<tr>
-        <td>${i + 1}</td>
-        <td>${ts.ticks}</td>
-        <td>${ts.time.toFixed(3)}</td>
-        <td>${ts.numerator}</td>
-        <td>${ts.denominator}</td>
-      </tr>`;
-    });
-    html += `</tbody></table>`;
-
-    // Tempos Table
-    html += `<h3>Unique Tempos (by BPM) - total measures covered</h3>`;
-    html += `<table><thead><tr><th>#</th><th>BPM</th><th>Measures Covered</th></tr></thead><tbody>`;
-    uniqueTempos.forEach((tempo, i) => {
-      html += `<tr>
-        <td>${i + 1}</td>
-        <td>${tempo.bpm.toFixed(2)}</td>
-        <td>${tempo.measures.toFixed(2)}</td>
-      </tr>`;
-    });
-    html += `</tbody></table>`;
-
-    outputDiv.innerHTML = html;
-    exportCsvBtn.disabled = false;
-  });
-
-  exportCsvBtn.addEventListener('click', () => {
-    if (!temposToExport.length || !timeSigsToExport.length) return;
-
-    // Prepare CSV for tempos
-    let csv = 'Tempos (BPM),Measures Covered\n';
-    temposToExport.forEach(t => {
-      csv += `${t.bpm.toFixed(2)},${t.measures.toFixed(2)}\n`;
-    });
-
-    csv += '\n'; // blank line separator
-
-    // Prepare CSV for time signatures
-    csv += 'Time Signatures\nIndex,Tick Position,Time (seconds),Numerator,Denominator\n';
-    timeSigsToExport.forEach((ts, i) => {
-      csv += `${i + 1},${ts.ticks},${ts.time.toFixed(3)},${ts.numerator},${ts.denominator}\n`;
-    });
-
-    // Download CSV
-    const blob = new Blob([csv], { type: 'text/csv' });
-    const url = URL.createObjectURL(blob);
-
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = 'midi_tempos_time_signatures.csv';
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-  });
-</script>
+  </script>
 
 </body>
 </html>
