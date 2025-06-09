@@ -6,27 +6,37 @@
   <title>MIDI to CSV Tool</title>
   <script src="https://cdn.jsdelivr.net/npm/@tonejs/midi@2.0.27/build/Midi.min.js"></script>
   <style>
-    /* Background and font styling */
-    body {
-      font-family: "Old English Text MT", "Diploma", "Goudy Old Style", cursive;
-      background-image: url('background.jpg'); /* Ensure this file is in the same folder */
-      background-size: cover;
-      background-repeat: no-repeat;
-      background-attachment: fixed;
-      background-position: center;
-      padding: 20px;
-      color: white;
+    /* Fullscreen video background */
+    #bgVideo {
+      position: fixed;
+      top: 0; left: 0;
+      width: 100vw;
+      height: 100vh;
+      object-fit: cover;
+      z-index: -1;
+      filter: brightness(0.6); /* darken video for contrast */
     }
 
-    input, button {
-      margin: 10px 0;
+    /* UI container above video */
+    body {
+      font-family: "Old English Text MT", "Diploma", "Goudy Old Style", cursive;
+      margin: 0;
+      padding: 20px;
+      color: white;
+      background: transparent;
+      min-height: 100vh;
     }
 
     h1 {
       text-shadow: 2px 2px 6px black;
     }
 
-    /* CSV Output: Consolas monospace with readable background */
+    input, button {
+      margin: 10px 0;
+      font-size: 1rem;
+    }
+
+    /* Output area monospace and semi-transparent */
     #output {
       white-space: pre-wrap;
       margin-top: 20px;
@@ -34,10 +44,18 @@
       background-color: rgba(0, 0, 0, 0.6);
       padding: 12px;
       border-radius: 8px;
+      max-height: 50vh;
+      overflow-y: auto;
     }
   </style>
 </head>
 <body>
+
+  <!-- Background video -->
+  <video id="bgVideo" autoplay muted loop playsinline>
+    <source src="background.mp4" type="video/mp4" />
+    Your browser does not support the video tag.
+  </video>
 
   <h1>MIDI to CSV Converter</h1>
   <input type="file" id="midiInput" accept=".mid,.midi" />
@@ -89,6 +107,37 @@
       return bestKey;
     }
 
+    // Map beat fractions to note duration names (rounded approx)
+    function getNoteDurationName(beats) {
+      // Standard note durations in beats (assuming 4/4 where quarter = 1 beat)
+      // including dotted and triplet notes
+      const durations = [
+        { name: "whole", value: 4 },
+        { name: "dotted half", value: 3 },
+        { name: "half", value: 2 },
+        { name: "dotted quarter", value: 1.5 },
+        { name: "quarter", value: 1 },
+        { name: "dotted eighth", value: 0.75 },
+        { name: "eighth", value: 0.5 },
+        { name: "triplet quarter", value: 2/3 },
+        { name: "triplet eighth", value: 1/3 },
+        { name: "sixteenth", value: 0.25 }
+      ];
+
+      // Find closest duration by smallest absolute difference
+      let closest = durations[0];
+      let minDiff = Math.abs(beats - closest.value);
+
+      for (const dur of durations) {
+        const diff = Math.abs(beats - dur.value);
+        if (diff < minDiff) {
+          minDiff = diff;
+          closest = dur;
+        }
+      }
+      return closest.name;
+    }
+
     document.getElementById('midiInput').addEventListener('change', async (event) => {
       const file = event.target.files[0];
       if (!file) return;
@@ -103,7 +152,7 @@
 
       const detectedKey = detectKey(midi);
 
-      const rows = [["Track", "Start (s)", "Pitch", "Duration (s)", "Duration (beats)", "Tempo (BPM)", "Key"]];
+      const rows = [["Track", "Start (s)", "Pitch", "Duration (s)", "Duration (beats)", "Duration Name", "Tempo (BPM)", "Key"]];
       midi.tracks.forEach((track, tIndex) => {
         track.notes.forEach(note => {
           const durationSec = note.duration;
@@ -114,6 +163,7 @@
             note.name,
             durationSec.toFixed(3),
             durationBeats.toFixed(6),
+            getNoteDurationName(durationBeats),
             bpm.toFixed(2),
             detectedKey
           ]);
