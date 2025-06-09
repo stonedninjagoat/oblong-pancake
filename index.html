@@ -31,11 +31,45 @@
           const midiData = new Uint8Array(e.target.result);
           const midi = new Midi(midiData);
           const filename = file.name.replace(/\.[^/.]+$/, "");
+          const cleanedMidi = uploadCheck(midi, filename);
 
-          // uploadCheck {
-          //   // check and display number of tracks in MIDI file
-          //   // if more than one, merge them vertically on top of each other 
-          // }
+          function uploadCheck(midi, filename) {
+  const numTracks = midi.tracks.length;
+  console.log(`${filename}: contains ${numTracks} track(s)`);
+
+  if (numTracks === 0) {
+    throw new Error(`${filename}: contains no tracks.`);
+  }
+
+  if (numTracks === 1) {
+    return midi; // Already acceptable
+  }
+
+  // Merge all tracks into a single one
+  const mergedTrack = midi.tracks[0].notes.slice(); // clone of first track notes
+  for (let i = 1; i < midi.tracks.length; i++) {
+    mergedTrack.push(...midi.tracks[i].notes);
+  }
+
+  // Sort all notes by their start time to preserve musical order
+  mergedTrack.sort((a, b) => a.time - b.time);
+
+  // Create new Midi object with single merged track
+  const newMidi = new Midi();
+  const track = newMidi.addTrack();
+
+  for (const note of mergedTrack) {
+    track.addNote({
+      midi: note.midi,
+      time: note.time,
+      duration: note.duration,
+      velocity: note.velocity
+    });
+  }
+
+  console.log(`${filename}: merged ${numTracks} tracks into one.`);
+  return newMidi;
+}
 
           // getTempos {
           //   // if more than 1 tempo, apply the tempo covering the most measures.
