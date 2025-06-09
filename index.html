@@ -4,10 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>MIDI to CSV Tool</title>
-
-  <!-- Load Tone.js MIDI parser -->
   <script src="https://cdn.jsdelivr.net/npm/@tonejs/midi@2.0.27/build/Midi.min.js"></script>
-
   <style>
     body {
       font-family: sans-serif;
@@ -17,7 +14,7 @@
       margin: 10px 0;
     }
     #output {
-      white-space: pre-wrap; /* keeps line breaks and spacing for the CSV preview */
+      white-space: pre-wrap;
       margin-top: 20px;
     }
   </style>
@@ -25,71 +22,86 @@
 <body>
 
   <h1>MIDI to CSV Converter</h1>
-
-  <!-- File input for uploading a MIDI file -->
   <input type="file" id="midiInput" accept=".mid,.midi" />
-
-  <!-- Button to download the generated CSV -->
   <button id="downloadCsv">Download CSV</button>
-
-  <!-- Output area to show a preview of the CSV contents -->
   <div id="output"></div>
 
   <script>
-    // This will hold the CSV text once it's generated
     let csvData = "";
 
-    // When the user selects a MIDI file
+    // Converts duration in beats to a note type label
+    function getNoteName(beats) {
+      const noteTypes = [
+        { name: "whole",        beats: 4 },
+        { name: "dotted half",  beats: 3 },
+        { name: "half",         beats: 2 },
+        { name: "dotted quarter", beats: 1.5 },
+        { name: "quarter",      beats: 1 },
+        { name: "dotted eighth",beats: 0.75 },
+        { name: "eighth",       beats: 0.5 },
+        { name: "eighth triplet", beats: 1/3 },
+        { name: "sixteenth",    beats: 0.25 },
+        { name: "sixteenth triplet", beats: 1/6 },
+        { name: "thirty-second", beats: 0.125 },
+      ];
+
+      let closest = noteTypes[0];
+      let minDiff = Math.abs(beats - closest.beats);
+      for (const note of noteTypes) {
+        const diff = Math.abs(beats - note.beats);
+        if (diff < minDiff) {
+          minDiff = diff;
+          closest = note;
+        }
+      }
+      return closest.name;
+    }
+
     document.getElementById('midiInput').addEventListener('change', async (event) => {
-      const file = event.target.files[0]; // Get the selected file
-      if (!file) return; // Stop if no file selected
+      const file = event.target.files[0];
+      if (!file) return;
 
-      // Read the file into an ArrayBuffer so the MIDI parser can understand it
       const arrayBuffer = await file.arrayBuffer();
-
-      // Parse the MIDI file using the Tone.js MIDI library
       const midi = new Midi(arrayBuffer);
 
-      // Start with a header row for the CSV
-      const rows = [["Track", "Start (s)", "Pitch", "Duration (s)"]];
+      // Default BPM unless one is found
+      let bpm = 120;
+      if (midi.header.tempos.length > 0) {
+        bpm = midi.header.tempos[0].bpm;
+      }
 
-      // Go through each track in the MIDI file
+      const rows = [["Track", "Start (s)", "Pitch", "Duration (s)", "Note Type"]];
+
       midi.tracks.forEach((track, tIndex) => {
-        // For each note in the track
         track.notes.forEach(note => {
+          const durationSeconds = note.duration;
+          const beats = durationSeconds * (bpm / 60); // convert seconds to beats
+          const noteType = getNoteName(beats); // map to standard note name
+
           rows.push([
-            tIndex + 1,                 // Track number (1-based index)
-            note.time.toFixed(3),       // Start time in seconds (rounded to 3 decimal places)
-            note.name,                  // Note name, e.g., "C4"
-            note.duration.toFixed(3)    // Duration in seconds
+            tIndex + 1,
+            note.time.toFixed(3),
+            note.name,
+            durationSeconds.toFixed(3),
+            noteType
           ]);
         });
       });
 
-      // Join all the rows into CSV format (array of strings, then one big string)
       csvData = rows.map(r => r.join(",")).join("\n");
-
-      // Show a preview in the output div
       document.getElementById('output').textContent = csvData;
     });
 
-    // When the user clicks the "Download CSV" button
     document.getElementById('downloadCsv').addEventListener('click', () => {
-      if (!csvData) return; // Do nothing if no data
-
-      // Create a Blob (file-like object) with the CSV data
+      if (!csvData) return;
       const blob = new Blob([csvData], { type: 'text/csv' });
-
-      // Create a temporary download link
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = 'midi_data.csv'; // Name for the downloaded file
-
-      // Simulate a click to trigger the download
+      a.download = 'midi_data.csv';
       document.body.appendChild(a);
       a.click();
-      document.body.removeChild(a); // Clean up
+      document.body.removeChild(a);
     });
   </script>
 
