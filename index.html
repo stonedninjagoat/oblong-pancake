@@ -11,111 +11,129 @@
   </style>
 </head>
 <body>
+
   <h1>MIDI to CSV Tool</h1>
-  <p>Ensure MIDI files have only one track, no percussion, and one tempo.</p>
+  <p>Ensure MIDI files have only one track and do not contain percussion.</p>
+
   <input type="file" id="midiInput" accept=".mid,.midi" multiple />
   <button onclick="processFiles()">Process MIDI Files</button>
+
   <div id="output"></div>
 
   <script>
+    document.getElementById('midiInput').addEventListener('change', (event) => {
+      for (const file of event.target.files) {
+        processMIDIFile(file);
+      }
+    });
+
     async function processFiles() {
       const files = document.getElementById('midiInput').files;
       for (const file of files) {
-        try {
-          const arrayBuffer = await file.arrayBuffer();
-          const midi = new Midi(arrayBuffer);
-          const filename = file.name.replace(/\.[^/.]+$/, "");
-
-          const cleanedMidi = uploadCheck(midi, filename);
-          const { tempo } = getTempos(cleanedMidi, filename);
-          const noteDurations = getNoteDurations(cleanedMidi, filename);
-          const convertedDurations = convertNoteDurations(cleanedMidi, filename);
-          const midiNumbers = getMIDInumber(cleanedMidi, filename);
-          const convertedMIDIs = convertMIDInumber(midiNumbers, filename);
-          const timeSigs = getTimeSigs(cleanedMidi, filename);
-          const groupedData = organizeMeasures(cleanedMidi, convertedDurations, timeSigs, filename);
-
-          const csvLines = [];
-          csvLines.push(`tempo,${tempo}`);
-          csvLines.push(`convertedMIDINumbers,"${JSON.stringify(convertedMIDIs)}"`);
-          csvLines.push(`groupedData,"${JSON.stringify(groupedData)}"`);
-
-          const csvContent = csvLines.join("\n");
-
-          document.getElementById("output").textContent += `\n===== ${filename}.csv =====\n${csvContent}\n`;
-
-          downloadCSV(filename, csvContent);
-        } catch (err) {
-          console.error(`Error processing ${file.name}:`, err.message);
-        }
+        await processMIDIFile(file);
       }
+    }
+
+    async function processMIDIFile(file) {
+      const arrayBuffer = await file.arrayBuffer();
+      const midi = new Midi(arrayBuffer);
+      const filename = file.name.replace(/\.[^/.]+$/, "");
+      const cleanedMidi = uploadCheck(midi, filename);
+
+      const { tempo } = getTempos(cleanedMidi, filename);
+      const noteDurations = getNoteDurations(cleanedMidi, filename);
+      const convertedNoteDurations = convertNoteDurations(cleanedMidi, filename);
+      const midiNumbers = getMIDInumber(cleanedMidi, filename);
+      const convertedMIDINumbers = convertMIDInumber(midiNumbers, filename);
+      const timeSigs = getTimeSigs(cleanedMidi, filename);
+      const groupedData = organizeMeasures(cleanedMidi, convertedNoteDurations, timeSigs, filename);
+
+      const csvLines = [];
+      csvLines.push(`tempo,${tempo}`);
+      csvLines.push(`convertedMIDINumbers,"${JSON.stringify(convertedMIDINumbers)}"`);
+      csvLines.push(`groupedData,"${JSON.stringify(groupedData)}"`);
+
+      const csvContent = csvLines.join("\n");
+      const output = document.getElementById("output");
+      output.textContent += `\n===== ${filename}.csv =====\n${csvContent}\n`;
+
+      downloadCSV(filename, csvContent);
     }
 
     function downloadCSV(filename, content) {
-      const blob = new Blob([content], { type: 'text/csv' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = filename + ".csv";
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
+      const blob = new Blob([content], { type: 'text/csv;charset=utf-8;' });
+      const link = document.createElement("a");
+      link.href = URL.createObjectURL(blob);
+      link.download = `${filename}.csv`;
+      link.click();
     }
 
     function uploadCheck(midi, filename) {
-      if (midi.tracks.length !== 1) {
-        throw new Error(`${filename}: contains ${midi.tracks.length} tracks (only 1 allowed).`);
+      if (midi.tracks.length <= 1) return midi;
+      const newMidi = new Midi();
+      const mergedNotes = midi.tracks.flatMap(track => track.notes);
+      mergedNotes.sort((a, b) => a.time - b.time);
+      const track = newMidi.addTrack();
+      for (const note of mergedNotes) {
+        track.addNote(note);
       }
-      if (midi.tracks[0].notes.some(note => note.midi >= 35 && note.midi <= 81 && note.channel === 9)) {
-        throw new Error(`${filename}: contains percussive notes (channel 10).`);
-      }
-      if (midi.header.tempos.length !== 1) {
-        throw new Error(`${filename}: contains ${midi.header.tempos.length} tempos (only 1 allowed).`);
-      }
-      return midi;
+      return newMidi;
     }
 
     function getTempos(midi, filename) {
-      const tempo = midi.header.tempos[0].bpm;
-      return { tempo };
+      const tempos = midi.header.tempos;
+      if (tempos.length === 0) return { tempo: 120 };
+      if (tempos.length === 1) return { tempo: tempos[0].bpm };
+
+      const tempoDurations = {};
+      const totalTicks = midi.durationTicks;
+      for (let i = 0; i < tempos.length; i++) {
+        const startTick = tempos[i].ticks;
+        const endTick = i + 1 < tempos.length ? tempos[i + 1].ticks : totalTicks;
+        const bpm = tempos[i].bpm;
+        tempoDurations[bpm] = (tempoDurations[bpm] || 0) + (endTick - startTick);
+      }
+
+      const dominantBPM = Object.entries(tempoDurations).reduce((a, b) => b[1] > a[1] ? b : a)[0];
+      return { tempo: parseFloat(dominantBPM) };
     }
 
     function getNoteDurations(midi, filename) {
-      const notes = midi.tracks[0].notes;
-      return notes.map(note => note.duration);
+      const ppq = midi.header.ppq;
+      return midi.tracks[0].notes.map(note => note.durationTicks / ppq);
     }
 
     function convertNoteDurations(midi, filename) {
       const ppq = midi.header.ppq;
-      const notes = midi.tracks[0].notes;
-      return notes.map(note => {
-        const ticks = note.durationTicks;
-        const quarter = ppq;
-        const eighth = ppq / 2;
-        const sixteenth = ppq / 4;
-        const half = ppq * 2;
-        const whole = ppq * 4;
+      const track = midi.tracks[0];
+      const rhythmMap = [
+        { name: "whole", value: 4 },
+        { name: "dotted half", value: 3 },
+        { name: "half", value: 2 },
+        { name: "dotted quarter", value: 1.5 },
+        { name: "triplet half", value: 4 / 3 },
+        { name: "quarter", value: 1 },
+        { name: "dotted eighth", value: 0.75 },
+        { name: "triplet quarter", value: 2 / 3 },
+        { name: "eighth", value: 0.5 },
+        { name: "triplet eighth", value: 1 / 3 },
+        { name: "sixteenth", value: 0.25 }
+      ];
 
-        const closest = (val, arr) => arr.reduce((a, b) =>
-          Math.abs(a - val) < Math.abs(b - val) ? a : b
-        );
+      function closestRhythm(val) {
+        return rhythmMap.reduce((a, b) => Math.abs(val - a.value) < Math.abs(val - b.value) ? a : b).name;
+      }
 
-        const types = {
-          [whole]: "1/1",
-          [half * 1.5]: "dotted 1/2",
-          [half]: "1/2",
-          [quarter * 1.5]: "dotted 1/4",
-          [quarter]: "1/4",
-          [eighth * 1.5]: "dotted 1/8",
-          [eighth]: "1/8",
-          [sixteenth * 1.5]: "dotted 1/16",
-          [sixteenth]: "1/16"
-        };
+      const groups = {};
+      for (const note of track.notes) {
+        const time = +(note.timeTicks / ppq).toFixed(4);
+        const dur = note.durationTicks / ppq;
+        const label = closestRhythm(dur);
+        if (!groups[time]) groups[time] = [];
+        groups[time].push(label);
+      }
 
-        const best = closest(ticks, Object.keys(types).map(Number));
-        return types[best] || `${ticks} ticks`;
-      });
+      return Object.keys(groups).sort((a, b) => a - b).map(k => groups[k].length === 1 ? groups[k][0] : groups[k]);
     }
 
     function getMIDInumber(midi, filename) {
@@ -123,37 +141,54 @@
     }
 
     function convertMIDInumber(midiNumbers, filename) {
-      const noteNames = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
-      return midiNumbers.map(num => {
-        const octave = Math.floor(num / 12) - 1;
-        const note = noteNames[num % 12];
-        return `${note}${octave}`;
+      const scale = [0, 2, 4, 5, 7, 9, 11];
+      return midiNumbers.map(n => {
+        const pc = n % 12;
+        const oct = Math.floor(n / 12) - 1;
+        const scaleIndex = scale.indexOf(pc);
+        return [scaleIndex !== -1 ? scaleIndex + 1 : 0, oct];
       });
     }
 
     function getTimeSigs(midi, filename) {
-      return midi.header.timeSignatures.map(sig => `${sig.timeSignature[0]}/${sig.timeSignature[1]}`);
+      const ppq = midi.header.ppq;
+      const ticks = midi.durationTicks;
+      const tsigs = midi.header.timeSignatures;
+      if (tsigs.length === 0) return Array(Math.ceil(ticks / (ppq * 4))).fill("4/4");
+      tsigs.sort((a, b) => a.ticks - b.ticks);
+
+      const result = [];
+      let i = 0, pos = 0;
+      while (pos < ticks) {
+        const { numerator, denominator } = tsigs[i];
+        const len = ppq * numerator * (4 / denominator);
+        result.push(`${numerator}/${denominator}`);
+        pos += len;
+        if (i + 1 < tsigs.length && pos >= tsigs[i + 1].ticks) i++;
+      }
+      return result;
     }
 
-    function organizeMeasures(midi, convertedNoteDurations, timeSigs, filename) {
-      const track = midi.tracks[0];
-      const notes = track.notes;
+    function organizeMeasures(midi, durations, timeSigs, filename) {
       const ppq = midi.header.ppq;
+      const notes = midi.tracks[0].notes;
+      const boundaries = [];
+      let pos = 0, idx = 0;
+      while (pos < midi.durationTicks) {
+        const [num, denom] = timeSigs[Math.min(idx, timeSigs.length - 1)].split("/").map(Number);
+        const len = ppq * num * (4 / denom);
+        boundaries.push(pos);
+        pos += len;
+        if (idx + 1 < timeSigs.length && pos >= midi.header.timeSignatures[idx + 1]?.ticks) idx++;
+      }
 
-      const measureGroups = {};
-      notes.forEach((note, i) => {
-        const ticks = note.ticks;
-        const timeSigEvent = midi.header.timeSignatures.find(ts => ts.ticks <= ticks) || { timeSignature: [4, 4] };
-        const measureLength = (ppq * 4 * timeSigEvent.timeSignature[0]) / timeSigEvent.timeSignature[1];
-        const measureNumber = Math.floor(ticks / measureLength);
-
-        if (!measureGroups[measureNumber]) {
-          measureGroups[measureNumber] = [];
-        }
-        measureGroups[measureNumber].push(convertedNoteDurations[i]);
-      });
-
-      return measureGroups;
+      const grouped = Array(boundaries.length).fill(null).map(() => []);
+      for (let i = 0; i < notes.length; i++) {
+        let m = 0;
+        while (m < boundaries.length - 1 && notes[i].ticks >= boundaries[m + 1]) m++;
+        grouped[m].push(durations[i]);
+      }
+      return grouped;
     }
   </script>
 </body>
