@@ -34,6 +34,8 @@
           const cleanedMidi = uploadCheck(midi, filename);
 const { tempo, bpmSource } = getTempos(cleanedMidi, filename);
 const filename_tempo = tempo;
+          const filename_NoteDurations = getNoteDurations(cleanedMidi, filename);
+
 
           
           function uploadCheck(midi, filename) {
@@ -122,9 +124,20 @@ function getTempos(midi, filename) {
 }
 
 
-          // getNoteDurations {
-          //   // store duration of each note to FILENAME_NoteDurations = []
-          // }
+         function getNoteDurations(midi, filename) {
+  const ticksPerBeat = midi.header.ppq; // PPQ = Pulses Per Quarter note
+  const track = midi.tracks[0]; // Assume cleaned to 1 track
+  const noteDurations = [];
+
+  for (const note of track.notes) {
+    const quarterLength = note.durationTicks / ticksPerBeat;
+    noteDurations.push(quarterLength);
+  }
+
+  console.log(`${filename}: Extracted ${noteDurations.length} note durations.`);
+  return noteDurations;
+}
+
 
           // convertNoteDurations {
           //   // standardize each duration to ¼, ½, dotted, triplet, etc
