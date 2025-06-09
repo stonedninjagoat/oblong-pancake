@@ -35,6 +35,11 @@
 const { tempo, bpmSource } = getTempos(cleanedMidi, filename);
 const filename_tempo = tempo;
           const filename_NoteDurations = getNoteDurations(cleanedMidi, filename);
+const filename_convertedNoteDurations = convertNoteDurations(cleanedMidi, filename);
+const filename_MIDInumbers = getMIDInumber(cleanedMidi, filename);
+const filename_convertedMIDInumbers = convertMIDInumber(filename_MIDInumbers, filename);
+const filename_timeSigs = getTimeSigs(cleanedMidi, filename);
+const filename_groupedData = organizeMeasures(cleanedMidi, filename_convertedNoteDurations, filename_timeSigs, filename);
 
 
           
@@ -139,48 +144,246 @@ function getTempos(midi, filename) {
 }
 
 
-          // convertNoteDurations {
-          //   // standardize each duration to ¼, ½, dotted, triplet, etc
-          //   // group simultaneous notes: ex [1, 2, [3, 4, 5], 6]
-          // }
+         function convertNoteDurations(midi, filename) {
+  const ticksPerBeat = midi.header.ppq;
+  const track = midi.tracks[0];
 
-          // getMIDInumber {
-          //   // store MIDI number of each note to FILENAME_MIDInumbers = []
-          // }
+  const standardizedDurations = [];
 
-          // convertMIDInumber {
-          //   // convert MIDI numbers to Jianpu scale + octave
-          //   // FILENAME_convertedMIDInumbers = [[num, oct], [], …]
-          // }
+  // Mapping logic: closest match in beats to known rhythmic values
+  const rhythmMap = [
+    { name: "whole", value: 4 },
+    { name: "dotted half", value: 3 },
+    { name: "half", value: 2 },
+    { name: "dotted quarter", value: 1.5 },
+    { name: "triplet half", value: 4 / 3 },
+    { name: "quarter", value: 1 },
+    { name: "dotted eighth", value: 0.75 },
+    { name: "triplet quarter", value: 2 / 3 },
+    { name: "eighth", value: 0.5 },
+    { name: "triplet eighth", value: 1 / 3 },
+    { name: "sixteenth", value: 0.25 }
+  ];
 
-          // getTimeSigs {
-          //   // store time signature of each measure to FILENAME_timeSigs = []
-          // }
+  // Helper: find the closest rhythm name for a beat duration
+  function closestRhythm(beatValue) {
+    let closest = rhythmMap[0];
+    let minDiff = Math.abs(beatValue - closest.value);
+    for (const rhythm of rhythmMap) {
+      const diff = Math.abs(beatValue - rhythm.value);
+      if (diff < minDiff) {
+        closest = rhythm;
+        minDiff = diff;
+      }
+    }
+    return closest.name;
+  }
 
-          // organizeMeasures {
-          //   // group note durations into measures by time signature
-          //   // FILENAME_groupedData = []
-          // }
+  // Step 1: Group notes by their start time (rounded to 4 decimal places)
+  const timeGroups = {};
+  for (const note of track.notes) {
+    const beatTime = +(note.timeTicks / ticksPerBeat).toFixed(4);
+    const durationInBeats = note.durationTicks / ticksPerBeat;
+    const durationLabel = closestRhythm(durationInBeats);
 
-          // for every imported MIDI file {
-          //   getTempos()
-          //   getNoteDurations()
-          //   convertNoteDurations()
-          //   getMIDInumber()
-          //   convertMIDInumber()
-          //   getTimeSigs()
-          //   organizeMeasures()
-          // }
+    if (!timeGroups[beatTime]) {
+      timeGroups[beatTime] = [];
+    }
 
-          // return CSV with:
-          // {
-          //   FILENAME_tempo
-          //   FILENAME_convertedMIDInumbers = []
-          //   FILENAME_groupedData = []
-          // }
+    timeGroups[beatTime].push(durationLabel);
+  }
 
-          // display CSV output
-          // document.getElementById('output').textContent += filename + '.csv content here\n';
+  // Step 2: Format output into ordered array
+  const sortedTimes = Object.keys(timeGroups)
+    .map(Number)
+    .sort((a, b) => a - b);
+
+  for (const time of sortedTimes) {
+    const group = timeGroups[time];
+    if (group.length === 1) {
+      standardizedDurations.push(group[0]);
+    } else {
+      standardizedDurations.push(group); // simultaneous notes
+    }
+  }
+
+  console.log(`${filename}: Converted and grouped ${track.notes.length} notes.`);
+  return standardizedDurations;
+}
+
+
+        function getMIDInumber(midi, filename) {
+  const track = midi.tracks[0];
+  const midiNumbers = [];
+
+  for (const note of track.notes) {
+    midiNumbers.push(note.midi); // MIDI note number (0–127)
+  }
+
+  console.log(`${filename}: Extracted ${midiNumbers.length} MIDI numbers.`);
+  return midiNumbers;
+}
+function convertMIDInumber(midiNumbers, filename) {
+  const jianpuScale = [0, 2, 4, 5, 7, 9, 11]; // C major scale intervals
+  const converted = [];
+
+  for (const midiNum of midiNumbers) {
+    const pitchClass = midiNum % 12;
+    const octave = Math.floor(midiNum / 12) - 1; // MIDI octave
+
+    // Find Jianpu scale number (1–7) by matching pitch class
+    const scaleIndex = jianpuScale.indexOf(pitchClass);
+    const jianpuNum = scaleIndex !== -1 ? scaleIndex + 1 : null;
+
+    if (jianpuNum !== null) {
+      converted.push([jianpuNum, octave]);
+    } else {
+      // Non-diatonic note (e.g., black key in C major), use 0 or leave out
+      converted.push([0, octave]); // or skip this note entirely
+    }
+  }
+
+  console.log(`${filename}: Converted ${midiNumbers.length} MIDI numbers to Jianpu + octave.`);
+  return converted;
+}
+
+function getTimeSigs(midi, filename) {
+  const ppq = midi.header.ppq;
+  const totalTicks = midi.durationTicks;
+  const timeSignatures = midi.header.timeSignatures;
+
+  if (timeSignatures.length === 0) {
+    console.warn(`${filename}: No time signature found. Defaulting to 4/4.`);
+    const totalMeasures = Math.ceil(totalTicks / (ppq * 4));
+    return Array(totalMeasures).fill("4/4");
+  }
+
+  // Sort by tick (just in case)
+  timeSignatures.sort((a, b) => a.ticks - b.ticks);
+
+  const measureTimeSigs = [];
+  let currentTS = timeSignatures[0];
+  let nextChangeIndex = 1;
+  let measureStartTick = 0;
+  let measureNumber = 0;
+
+  while (measureStartTick < totalTicks) {
+    // If next time sig starts before this measure ends, switch
+    if (
+      nextChangeIndex < timeSignatures.length &&
+      measureStartTick >= timeSignatures[nextChangeIndex].ticks
+    ) {
+      currentTS = timeSignatures[nextChangeIndex];
+      nextChangeIndex++;
+    }
+
+    const { numerator, denominator } = currentTS;
+    const beatLengthTicks = ppq * (4 / denominator);
+    const measureLengthTicks = beatLengthTicks * numerator;
+
+    measureTimeSigs.push(`${numerator}/${denominator}`);
+    measureStartTick += measureLengthTicks;
+    measureNumber++;
+  }
+
+  console.log(`${filename}: Computed ${measureTimeSigs.length} measures of time signatures.`);
+  return measureTimeSigs;
+}
+
+function organizeMeasures(midi, convertedDurations, timeSigs, filename) {
+  const ppq = midi.header.ppq;
+  const notes = midi.tracks[0].notes;
+
+  // Step 1: Build measure tick boundaries using time signatures
+  const measureBoundaries = [];
+  let currentTick = 0;
+  let tsIndex = 0;
+
+  while (currentTick < midi.durationTicks) {
+    const ts = timeSigs[Math.min(tsIndex, timeSigs.length - 1)];
+    const [numerator, denominator] = ts.split("/").map(Number);
+    const beatsPerMeasure = numerator;
+    const beatLength = 4 / denominator;
+    const measureLengthTicks = ppq * beatsPerMeasure * beatLength;
+
+    measureBoundaries.push(currentTick);
+    currentTick += measureLengthTicks;
+
+    if (tsIndex + 1 < timeSigs.length) {
+      const nextTS = midi.header.timeSignatures[tsIndex + 1];
+      if (currentTick >= nextTS.ticks) tsIndex++;
+    }
+  }
+
+  // Step 2: Assign converted durations to measures based on start tick
+  const groupedData = Array(measureBoundaries.length).fill(null).map(() => []);
+
+  for (let i = 0; i < notes.length; i++) {
+    const note = notes[i];
+    const dur = convertedDurations[i];
+
+    // Find the measure index this note starts in
+    let mIdx = 0;
+    while (
+      mIdx < measureBoundaries.length - 1 &&
+      note.ticks >= measureBoundaries[mIdx + 1]
+    ) {
+      mIdx++;
+    }
+
+    groupedData[mIdx].push(dur);
+  }
+
+  console.log(`${filename}: Grouped ${notes.length} notes into ${groupedData.length} measures.`);
+  return groupedData;
+}
+
+         async function processMIDIFile(file) {
+  const arrayBuffer = await file.arrayBuffer();
+  const midi = new Midi(arrayBuffer);
+  const filename = file.name.replace(/\.[^/.]+$/, "");
+
+  // 1. Tempo
+  const tempo = getTempos(midi, filename);
+
+  // 2. Note Durations
+  const noteDurations = getNoteDurations(midi, filename);
+
+  // 3. Convert Durations
+  const convertedNoteDurations = convertNoteDurations(midi, filename);
+
+  // 4. Raw MIDI Numbers
+  const midiNumbers = getMIDInumber(midi, filename);
+
+  // 5. Jianpu Conversion
+  const convertedMIDINumbers = convertMIDInumber(midiNumbers, filename);
+
+  // 6. Time Signatures
+  const timeSigs = getTimeSigs(midi, filename);
+
+  // 7. Grouped Data by Measure
+  const groupedData = organizeMeasures(midi, convertedNoteDurations, timeSigs, filename);
+
+  // 8. Format for CSV
+  const csvLines = [];
+  csvLines.push(`tempo,${tempo}`);
+  csvLines.push(`convertedMIDINumbers,"${JSON.stringify(convertedMIDINumbers)}"`);
+  csvLines.push(`groupedData,"${JSON.stringify(groupedData)}"`);
+
+  const csvContent = csvLines.join("\n");
+
+  // 9. Display CSV in browser (append to output)
+  const output = document.getElementById("output");
+  output.textContent += `\n===== ${filename}.csv =====\n${csvContent}\n`;
+
+  // Optional: Trigger file download
+  downloadCSV(filename, csvContent);
+}
+  document.getElementById('midi-upload').addEventListener('change', (event) => {
+    for (const file of event.target.files) {
+      processMIDIFile(file);
+    }
+  });
         };
         reader.readAsArrayBuffer(file);
       }
