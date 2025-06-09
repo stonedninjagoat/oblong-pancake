@@ -14,7 +14,7 @@
       height: 100vh;
       object-fit: cover;
       z-index: -1;
-      filter: brightness(0.6); /* darken video for contrast */
+      filter: brightness(0.6);
     }
 
     /* UI container above video */
@@ -32,11 +32,10 @@
     }
 
     input, button {
-      margin: 10px 0;
+      margin: 10px 10px 10px 0;
       font-size: 1rem;
     }
 
-    /* Output area monospace and semi-transparent */
     #output {
       white-space: pre-wrap;
       margin-top: 20px;
@@ -60,10 +59,12 @@
   <h1>MIDI to CSV Converter</h1>
   <input type="file" id="midiInput" accept=".mid,.midi" />
   <button id="downloadCsv">Download CSV</button>
+  <button id="downloadMidi">Download MIDI</button>
   <div id="output"></div>
 
   <script>
     let csvData = "";
+    let cleanedMidi = null;
 
     const pitchClassNames = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
     const majorScale = [1, 0, 1, 0, 1, 1, 0, 1, 0, 1, 0, 1];
@@ -109,8 +110,6 @@
 
     // Map beat fractions to note duration names (rounded approx)
     function getNoteDurationName(beats) {
-      // Standard note durations in beats (assuming 4/4 where quarter = 1 beat)
-      // including dotted and triplet notes
       const durations = [
         { name: "whole", value: 4 },
         { name: "dotted half", value: 3 },
@@ -124,7 +123,6 @@
         { name: "sixteenth", value: 0.25 }
       ];
 
-      // Find closest duration by smallest absolute difference
       let closest = durations[0];
       let minDiff = Math.abs(beats - closest.value);
 
@@ -138,12 +136,59 @@
       return closest.name;
     }
 
+    // Merge adjacent notes of same pitch & octave on each track
+    // Returns true if any merge happened
+    function mergeAdjacentTies(track) {
+      // Sort notes by start time ascending
+      track.notes.sort((a, b) => a.time - b.time);
+      let mergedAny = false;
+
+      for (let i = 0; i < track.notes.length - 1; ) {
+        const noteA = track.notes[i];
+        const noteB = track.notes[i + 1];
+
+        // Check if same pitch and octave and noteB starts exactly when noteA ends (allow tiny float tolerance)
+        if (
+          noteA.midi === noteB.midi &&
+          Math.abs(noteA.time + noteA.duration - noteB.time) < 0.0001
+        ) {
+          // Merge: extend duration of noteA, remove noteB
+          noteA.duration += noteB.duration;
+          // Remove noteB
+          track.notes.splice(i + 1, 1);
+          mergedAny = true;
+          // Don't increment i because next note shifts left
+        } else {
+          i++;
+        }
+      }
+      return mergedAny;
+    }
+
+    // Repeat merging on all tracks until no more merges
+    function mergeAllTies(midi) {
+      let anyMerge = false;
+      midi.tracks.forEach(track => {
+        let merged;
+        do {
+          merged = mergeAdjacentTies(track);
+          if (merged) anyMerge = true;
+        } while (merged);
+      });
+      return anyMerge;
+    }
+
     document.getElementById('midiInput').addEventListener('change', async (event) => {
       const file = event.target.files[0];
       if (!file) return;
 
       const arrayBuffer = await file.arrayBuffer();
       const midi = new Midi(arrayBuffer);
+
+      // Merge ties
+      mergeAllTies(midi);
+
+      cleanedMidi = midi; // save for export
 
       let bpm = 120;
       if (midi.header.tempos.length > 0) {
@@ -181,6 +226,19 @@
       const a = document.createElement('a');
       a.href = url;
       a.download = 'midi_data.csv';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+    });
+
+    document.getElementById('downloadMidi').addEventListener('click', () => {
+      if (!cleanedMidi) return;
+      const bytes = cleanedMidi.toArray();
+      const blob = new Blob([bytes], { type: 'audio/midi' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'cleaned_midi.mid';
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
