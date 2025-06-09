@@ -29,34 +29,6 @@
   <script>
     let csvData = "";
 
-    // Converts duration in beats to a note type label
-    function getNoteName(beats) {
-      const noteTypes = [
-        { name: "whole",        beats: 4 },
-        { name: "dotted half",  beats: 3 },
-        { name: "half",         beats: 2 },
-        { name: "dotted quarter", beats: 1.5 },
-        { name: "quarter",      beats: 1 },
-        { name: "dotted eighth",beats: 0.75 },
-        { name: "eighth",       beats: 0.5 },
-        { name: "eighth triplet", beats: 1/3 },
-        { name: "sixteenth",    beats: 0.25 },
-        { name: "sixteenth triplet", beats: 1/6 },
-        { name: "thirty-second", beats: 0.125 },
-      ];
-
-      let closest = noteTypes[0];
-      let minDiff = Math.abs(beats - closest.beats);
-      for (const note of noteTypes) {
-        const diff = Math.abs(beats - note.beats);
-        if (diff < minDiff) {
-          minDiff = diff;
-          closest = note;
-        }
-      }
-      return closest.name;
-    }
-
     document.getElementById('midiInput').addEventListener('change', async (event) => {
       const file = event.target.files[0];
       if (!file) return;
@@ -64,26 +36,27 @@
       const arrayBuffer = await file.arrayBuffer();
       const midi = new Midi(arrayBuffer);
 
-      // Default BPM unless one is found
+      // Use first tempo in file, default to 120 if none
       let bpm = 120;
       if (midi.header.tempos.length > 0) {
         bpm = midi.header.tempos[0].bpm;
       }
 
-      const rows = [["Track", "Start (s)", "Pitch", "Duration (s)", "Note Type"]];
+      // Header row with additional columns
+      const rows = [["Track", "Start (s)", "Pitch", "Duration (s)", "Duration (beats)", "Tempo (BPM)"]];
 
       midi.tracks.forEach((track, tIndex) => {
         track.notes.forEach(note => {
-          const durationSeconds = note.duration;
-          const beats = durationSeconds * (bpm / 60); // convert seconds to beats
-          const noteType = getNoteName(beats); // map to standard note name
+          const durationSec = note.duration;
+          const durationBeats = durationSec * (bpm / 60);
 
           rows.push([
             tIndex + 1,
             note.time.toFixed(3),
             note.name,
-            durationSeconds.toFixed(3),
-            noteType
+            durationSec.toFixed(3),
+            durationBeats.toFixed(6),
+            bpm.toFixed(2)
           ]);
         });
       });
