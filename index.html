@@ -6,37 +6,40 @@
   <title>MIDI to CSV Tool</title>
   <script src="https://cdn.jsdelivr.net/npm/@tonejs/midi@2.0.27/build/Midi.min.js"></script>
   <style>
-    /* Page background image */
+    /* Background and font styling */
     body {
       font-family: "Old English Text MT", "Diploma", "Goudy Old Style", cursive;
-      background-image: url('background.jpg');
+      background-image: url('background.jpg'); /* Ensure this file is in the same folder */
       background-size: cover;
       background-repeat: no-repeat;
       background-attachment: fixed;
       background-position: center;
       padding: 20px;
-      color: white; /* text visibility */
+      color: white;
     }
 
     input, button {
       margin: 10px 0;
     }
 
-    /* Monospace font for CSV output */
+    h1 {
+      text-shadow: 2px 2px 6px black;
+    }
+
+    /* CSV Output: Consolas monospace with readable background */
     #output {
       white-space: pre-wrap;
       margin-top: 20px;
       font-family: Consolas, monospace;
-      background-color: rgba(0, 0, 0, 0.6); /* translucent dark background for readability */
-      padding: 10px;
-      border-radius: 6px;
+      background-color: rgba(0, 0, 0, 0.6);
+      padding: 12px;
+      border-radius: 8px;
     }
   </style>
 </head>
 <body>
 
-
-  <h1>MIDI to CSV Converter (Auto-transpose to C)</h1>
+  <h1>MIDI to CSV Converter</h1>
   <input type="file" id="midiInput" accept=".mid,.midi" />
   <button id="downloadCsv">Download CSV</button>
   <div id="output"></div>
@@ -44,10 +47,14 @@
   <script>
     let csvData = "";
 
+    // Map MIDI pitch class (0-11) to note name
     const pitchClassNames = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
+
+    // Template for major and minor scales
     const majorScale = [1, 0, 1, 0, 1, 1, 0, 1, 0, 1, 0, 1];
     const minorScale = [1, 0, 1, 1, 0, 1, 0, 1, 1, 0, 1, 0];
 
+    // Cosine similarity
     function cosineSimilarity(a, b) {
       const dot = a.reduce((sum, val, i) => sum + val * b[i], 0);
       const magA = Math.sqrt(a.reduce((sum, val) => sum + val * val, 0));
@@ -55,10 +62,12 @@
       return dot / (magA * magB);
     }
 
+    // Rotate scale template
     function rotateArray(arr, shift) {
       return arr.slice(shift).concat(arr.slice(0, shift));
     }
 
+    // Detect key based on note frequency histogram
     function detectKey(midi) {
       const hist = new Array(12).fill(0);
       midi.tracks.forEach(track => {
@@ -69,38 +78,21 @@
 
       let bestKey = "C major";
       let bestScore = -Infinity;
-      let bestRoot = 0;
-      let bestMode = "major";
 
       for (let i = 0; i < 12; i++) {
         const majorSim = cosineSimilarity(hist, rotateArray(majorScale, i));
+        const minorSim = cosineSimilarity(hist, rotateArray(minorScale, i));
         if (majorSim > bestScore) {
           bestScore = majorSim;
           bestKey = pitchClassNames[i] + " major";
-          bestRoot = i;
-          bestMode = "major";
         }
-
-        const minorSim = cosineSimilarity(hist, rotateArray(minorScale, i));
         if (minorSim > bestScore) {
           bestScore = minorSim;
           bestKey = pitchClassNames[i] + " minor";
-          bestRoot = i;
-          bestMode = "minor";
         }
       }
 
-      return { key: bestKey, root: bestRoot, mode: bestMode };
-    }
-
-    function transposeToC(midi, root) {
-      const shift = (12 - root) % 12;
-      midi.tracks.forEach(track => {
-        track.notes.forEach(note => {
-          note.midi += shift;
-          note.name = Midi.midiToNoteName(note.midi);
-        });
-      });
+      return bestKey;
     }
 
     document.getElementById('midiInput').addEventListener('change', async (event) => {
@@ -110,23 +102,19 @@
       const arrayBuffer = await file.arrayBuffer();
       const midi = new Midi(arrayBuffer);
 
-      // Tempo
+      // Get BPM (default = 120)
       let bpm = 120;
       if (midi.header.tempos.length > 0) {
         bpm = midi.header.tempos[0].bpm;
       }
 
       // Detect key
-      const keyInfo = detectKey(midi);
-      const originalKey = keyInfo.key;
+      const detectedKey = detectKey(midi);
 
-      // Transpose to C
-      transposeToC(midi, keyInfo.root);
+      // CSV Header row
+      const rows = [["Track", "Start (s)", "Pitch", "Duration (s)", "Duration (beats)", "Tempo (BPM)", "Key"]];
 
-      // CSV header
-      const rows = [["Track", "Start (s)", "Pitch", "Duration (s)", "Duration (beats)", "Tempo (BPM)", "Original Key"]];
-
-      // Add rows
+      // Parse note data
       midi.tracks.forEach((track, tIndex) => {
         track.notes.forEach(note => {
           const durationSec = note.duration;
@@ -138,14 +126,16 @@
             durationSec.toFixed(3),
             durationBeats.toFixed(6),
             bpm.toFixed(2),
-            originalKey
+            detectedKey
           ]);
         });
       });
 
+      // Join rows to form CSV string
       csvData = rows.map(r => r.join(",")).join("\n");
 
-      document.getElementById('output').textContent = "Detected Key: " + originalKey + " → Transposed to C\n\n" + csvData;
+      // Display output
+      document.getElementById('output').textContent = "Detected Key: " + detectedKey + "\n\n" + csvData;
     });
 
     document.getElementById('downloadCsv').addEventListener('click', () => {
@@ -154,7 +144,7 @@
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = 'midi_data_transposed_to_C.csv';
+      a.download = 'midi_data.csv';
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
