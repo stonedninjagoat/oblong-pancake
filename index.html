@@ -4,59 +4,92 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>MIDI to CSV Tool</title>
+
+  <!-- Load Tone.js MIDI parser -->
   <script src="https://cdn.jsdelivr.net/npm/@tonejs/midi@2.0.27/build/Midi.min.js"></script>
+
   <style>
-    body { font-family: sans-serif; padding: 20px; }
-    input, button { margin: 10px 0; }
-    #output { white-space: pre-wrap; margin-top: 20px; }
+    body {
+      font-family: sans-serif;
+      padding: 20px;
+    }
+    input, button {
+      margin: 10px 0;
+    }
+    #output {
+      white-space: pre-wrap; /* keeps line breaks and spacing for the CSV preview */
+      margin-top: 20px;
+    }
   </style>
 </head>
 <body>
 
   <h1>MIDI to CSV Converter</h1>
 
+  <!-- File input for uploading a MIDI file -->
   <input type="file" id="midiInput" accept=".mid,.midi" />
+
+  <!-- Button to download the generated CSV -->
   <button id="downloadCsv">Download CSV</button>
 
+  <!-- Output area to show a preview of the CSV contents -->
   <div id="output"></div>
 
   <script>
+    // This will hold the CSV text once it's generated
     let csvData = "";
 
+    // When the user selects a MIDI file
     document.getElementById('midiInput').addEventListener('change', async (event) => {
-      const file = event.target.files[0];
-      if (!file) return;
+      const file = event.target.files[0]; // Get the selected file
+      if (!file) return; // Stop if no file selected
 
+      // Read the file into an ArrayBuffer so the MIDI parser can understand it
       const arrayBuffer = await file.arrayBuffer();
+
+      // Parse the MIDI file using the Tone.js MIDI library
       const midi = new Midi(arrayBuffer);
 
+      // Start with a header row for the CSV
       const rows = [["Track", "Start (s)", "Pitch", "Duration (s)"]];
 
+      // Go through each track in the MIDI file
       midi.tracks.forEach((track, tIndex) => {
+        // For each note in the track
         track.notes.forEach(note => {
           rows.push([
-            tIndex + 1,
-            note.time.toFixed(3),
-            note.name,
-            note.duration.toFixed(3)
+            tIndex + 1,                 // Track number (1-based index)
+            note.time.toFixed(3),       // Start time in seconds (rounded to 3 decimal places)
+            note.name,                  // Note name, e.g., "C4"
+            note.duration.toFixed(3)    // Duration in seconds
           ]);
         });
       });
 
+      // Join all the rows into CSV format (array of strings, then one big string)
       csvData = rows.map(r => r.join(",")).join("\n");
+
+      // Show a preview in the output div
       document.getElementById('output').textContent = csvData;
     });
 
+    // When the user clicks the "Download CSV" button
     document.getElementById('downloadCsv').addEventListener('click', () => {
-      if (!csvData) return;
+      if (!csvData) return; // Do nothing if no data
+
+      // Create a Blob (file-like object) with the CSV data
       const blob = new Blob([csvData], { type: 'text/csv' });
+
+      // Create a temporary download link
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = 'midi_data.csv';
+      a.download = 'midi_data.csv'; // Name for the downloaded file
+
+      // Simulate a click to trigger the download
       document.body.appendChild(a);
       a.click();
-      document.body.removeChild(a);
+      document.body.removeChild(a); // Clean up
     });
   </script>
 
