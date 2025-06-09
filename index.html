@@ -32,7 +32,10 @@
           const midi = new Midi(midiData);
           const filename = file.name.replace(/\.[^/.]+$/, "");
           const cleanedMidi = uploadCheck(midi, filename);
+const { tempo, bpmSource } = getTempos(cleanedMidi, filename);
+const filename_tempo = tempo;
 
+          
           function uploadCheck(midi, filename) {
   const numTracks = midi.tracks.length;
   console.log(`${filename}: contains ${numTracks} track(s)`);
@@ -71,11 +74,53 @@
   return newMidi;
 }
 
-          // getTempos {
-          //   // if more than 1 tempo, apply the tempo covering the most measures.
-          //   // store tempo to variable “FILENAME_tempo”
-          //   // if no tempo, default to 120.
-          // }
+function getTempos(midi, filename) {
+  const tempos = midi.header.tempos;
+
+  // If no tempos found, try to infer a reasonable default
+  if (tempos.length === 0) {
+    console.warn(`${filename}: No tempo found, defaulting to 120 BPM.`);
+    return { tempo: 120, bpmSource: 'default' };
+  }
+
+  if (tempos.length === 1) {
+    console.log(`${filename}: Single tempo detected (${tempos[0].bpm} BPM).`);
+    return { tempo: tempos[0].bpm, bpmSource: 'single' };
+  }
+
+  // If multiple tempos, calculate which one spans the longest duration
+  let totalTicks = midi.durationTicks;
+  const tempoDurations = {};
+
+  for (let i = 0; i < tempos.length; i++) {
+    const currentTempo = tempos[i];
+    const startTick = currentTempo.ticks;
+
+    let endTick;
+    if (i < tempos.length - 1) {
+      endTick = tempos[i + 1].ticks;
+    } else {
+      endTick = totalTicks;
+    }
+
+    const duration = endTick - startTick;
+    const bpm = currentTempo.bpm;
+
+    if (!tempoDurations[bpm]) {
+      tempoDurations[bpm] = 0;
+    }
+    tempoDurations[bpm] += duration;
+  }
+
+  // Find BPM with longest span
+  const dominantBPM = Object.entries(tempoDurations).reduce((a, b) =>
+    b[1] > a[1] ? b : a
+  )[0];
+
+  console.log(`${filename}: Multiple tempos found. Dominant BPM is ${dominantBPM}.`);
+  return { tempo: parseFloat(dominantBPM), bpmSource: 'dominant' };
+}
+
 
           // getNoteDurations {
           //   // store duration of each note to FILENAME_NoteDurations = []
