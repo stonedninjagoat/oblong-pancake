@@ -21,16 +21,25 @@
   <div id="output"></div>
 
   <script>
-    // import necessary
+    function downloadCSV(filename, content) {
+      const blob = new Blob([content], { type: 'text/csv;charset=utf-8;' });
+      const link = document.createElement('a');
+      link.href = URL.createObjectURL(blob);
+      link.download = filename + ".csv";
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    }
 
-    function processFiles() {
+    async function processFiles() {
       const files = document.getElementById('midiInput').files;
       for (const file of files) {
         const reader = new FileReader();
         reader.onload = async (e) => {
           const midiData = new Uint8Array(e.target.result);
           const midi = new Midi(midiData);
-          const filename = file.name.replace(/\.[^/.]+$/, "");
+          const filename = file.name.replace(/\.[^/.]+$/, "");  
+          
           const cleanedMidi = uploadCheck(midi, filename);
 const { tempo, bpmSource } = getTempos(cleanedMidi, filename);
 const filename_tempo = tempo;
@@ -41,7 +50,23 @@ const filename_convertedMIDInumbers = convertMIDInumber(filename_MIDInumbers, fi
 const filename_timeSigs = getTimeSigs(cleanedMidi, filename);
 const filename_groupedData = organizeMeasures(cleanedMidi, filename_convertedNoteDurations, filename_timeSigs, filename);
 
+// Format to CSV
+          const csvLines = [];
+          csvLines.push(`tempo,${tempo}`);
+          csvLines.push(`convertedMIDINumbers,"${JSON.stringify(convertedMIDINumbers)}"`);
+          csvLines.push(`groupedData,"${JSON.stringify(groupedData)}"`);
 
+          const csvContent = csvLines.join("\n");
+
+          // Display CSV in browser
+          const output = document.getElementById("output");
+          output.textContent += `\n===== ${filename}.csv =====\n${csvContent}\n`;
+
+          // Trigger download
+          downloadCSV(filename, csvContent);
+        };
+        reader.readAsArrayBuffer(file);
+      }
           
           function uploadCheck(midi, filename) {
   const numTracks = midi.tracks.length;
