@@ -3,15 +3,38 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>MIDI to CSV Tool (Transposed to C)</title>
+  <title>MIDI to CSV Tool</title>
   <script src="https://cdn.jsdelivr.net/npm/@tonejs/midi@2.0.27/build/Midi.min.js"></script>
   <style>
-    body { font-family: sans-serif; padding: 20px; }
-    input, button { margin: 10px 0; }
-    #output { white-space: pre-wrap; margin-top: 20px; }
+    /* Page background image */
+    body {
+      font-family: "Old English Text MT", "Diploma", "Goudy Old Style", cursive;
+      background-image: url('background.jpg');
+      background-size: cover;
+      background-repeat: no-repeat;
+      background-attachment: fixed;
+      background-position: center;
+      padding: 20px;
+      color: white; /* text visibility */
+    }
+
+    input, button {
+      margin: 10px 0;
+    }
+
+    /* Monospace font for CSV output */
+    #output {
+      white-space: pre-wrap;
+      margin-top: 20px;
+      font-family: Consolas, monospace;
+      background-color: rgba(0, 0, 0, 0.6); /* translucent dark background for readability */
+      padding: 10px;
+      border-radius: 6px;
+    }
   </style>
 </head>
 <body>
+
 
   <h1>MIDI to CSV Converter (Auto-transpose to C)</h1>
   <input type="file" id="midiInput" accept=".mid,.midi" />
