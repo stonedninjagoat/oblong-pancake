@@ -1,107 +1,97 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <title>MIDI Combiner Tool</title>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>MIDI Info Extractor</title>
   <script src="https://cdn.jsdelivr.net/npm/@tonejs/midi@2.0.27/build/Midi.min.js"></script>
   <style>
     body { font-family: sans-serif; padding: 20px; }
-    input, button { margin: 10px 0; }
+    #output { margin-top: 20px; white-space: pre-wrap; }
   </style>
 </head>
 <body>
-  <h2>MIDI Combiner Tool</h2>
-  <input type="file" id="midiFiles" multiple accept=".mid,.midi">
-  <br>
-  <button onclick="processMIDIs()">Process and Export Combined MIDI</button>
-  <p id="status"></p>
+
+  <h1>MIDI to CSV Tool</h1>
+  <p>Ensure MIDI files have only one track and do not contain percussion.</p>
+
+  <input type="file" id="midiInput" accept=".mid,.midi" multiple />
+  <button onclick="processFiles()">Process MIDI Files</button>
+
+  <div id="output"></div>
 
   <script>
-    function transposeToCMajor(track) {
-      const notes = track.notes;
-      if (notes.length === 0) return;
+    // import necessary
 
-      // Get the most common pitch class
-      const pitchClasses = Array(12).fill(0);
-      notes.forEach(n => pitchClasses[n.midi % 12]++);
-      const mostCommon = pitchClasses.indexOf(Math.max(...pitchClasses));
-      const shift = (0 - mostCommon + 12) % 12;
-
-      notes.forEach(n => n.midi += shift);
-    }
-
-    async function processMIDIs() {
-      const files = document.getElementById("midiFiles").files;
-      if (files.length === 0) {
-        document.getElementById("status").innerText = "Please upload MIDI files.";
-        return;
-      }
-
-      const midiList = [];
-      const bpms = [];
-
+    function processFiles() {
+      const files = document.getElementById('midiInput').files;
       for (const file of files) {
-        try {
-          const arrayBuffer = await file.arrayBuffer();
-          const midi = new Midi(arrayBuffer);
-          midi.header.tempos.forEach(t => bpms.push(t.bpm));
-          if (midi.header.tempos.length === 0) bpms.push(120); // default
+        const reader = new FileReader();
+        reader.onload = async (e) => {
+          const midiData = new Uint8Array(e.target.result);
+          const midi = new Midi(midiData);
+          const filename = file.name.replace(/\.[^/.]+$/, "");
 
-          midi.tracks.forEach(track => transposeToCMajor(track));
-          midiList.push(midi);
-        } catch (e) {
-          document.getElementById("status").innerText = `Error reading file: ${file.name}`;
-          return;
-        }
+          // uploadCheck {
+          //   // check and display number of tracks in MIDI file
+          //   // if more than one, merge them vertically on top of each other 
+          // }
+
+          // getTempos {
+          //   // if more than 1 tempo, apply the tempo covering the most measures.
+          //   // store tempo to variable “FILENAME_tempo”
+          //   // if no tempo, default to 120.
+          // }
+
+          // getNoteDurations {
+          //   // store duration of each note to FILENAME_NoteDurations = []
+          // }
+
+          // convertNoteDurations {
+          //   // standardize each duration to ¼, ½, dotted, triplet, etc
+          //   // group simultaneous notes: ex [1, 2, [3, 4, 5], 6]
+          // }
+
+          // getMIDInumber {
+          //   // store MIDI number of each note to FILENAME_MIDInumbers = []
+          // }
+
+          // convertMIDInumber {
+          //   // convert MIDI numbers to Jianpu scale + octave
+          //   // FILENAME_convertedMIDInumbers = [[num, oct], [], …]
+          // }
+
+          // getTimeSigs {
+          //   // store time signature of each measure to FILENAME_timeSigs = []
+          // }
+
+          // organizeMeasures {
+          //   // group note durations into measures by time signature
+          //   // FILENAME_groupedData = []
+          // }
+
+          // for every imported MIDI file {
+          //   getTempos()
+          //   getNoteDurations()
+          //   convertNoteDurations()
+          //   getMIDInumber()
+          //   convertMIDInumber()
+          //   getTimeSigs()
+          //   organizeMeasures()
+          // }
+
+          // return CSV with:
+          // {
+          //   FILENAME_tempo
+          //   FILENAME_convertedMIDInumbers = []
+          //   FILENAME_groupedData = []
+          // }
+
+          // display CSV output
+          // document.getElementById('output').textContent += filename + '.csv content here\n';
+        };
+        reader.readAsArrayBuffer(file);
       }
-
-      const avgBPM = bpms.reduce((a, b) => a + b, 0) / bpms.length;
-
-      const combinedMidi = new Midi();
-      combinedMidi.header.setTempo(avgBPM);
-
-      let currentTime = 0;
-
-      for (const midi of midiList) {
-        for (const sourceTrack of midi.tracks) {
-          const newTrack = combinedMidi.addTrack();
-
-          sourceTrack.notes.forEach(note => {
-            newTrack.addNote({
-              midi: note.midi,
-              time: note.time + currentTime,
-              duration: note.duration,
-              velocity: note.velocity
-            });
-          });
-
-          Object.values(sourceTrack.controlChanges).forEach(ccArray => {
-            ccArray.forEach(cc => {
-              newTrack.addCC({
-                number: cc.number,
-                value: cc.value,
-                time: cc.time + currentTime
-              });
-            });
-          });
-        }
-
-        currentTime += midi.duration;
-      }
-
-      const bytes = combinedMidi.toArray();
-      const blob = new Blob([bytes], { type: 'audio/midi' });
-      const url = URL.createObjectURL(blob);
-
-      // Ensure download works by appending <a> to DOM
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = "combined_standardized.mid";
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-
-      document.getElementById("status").innerText = "Exported combined MIDI!";
     }
   </script>
 </body>
