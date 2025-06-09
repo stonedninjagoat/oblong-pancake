@@ -1,3 +1,4 @@
+<!-- Full HTML file below -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -6,7 +7,6 @@
   <title>MIDI to CSV Tool</title>
   <script src="https://cdn.jsdelivr.net/npm/@tonejs/midi@2.0.27/build/Midi.min.js"></script>
   <style>
-    /* Layered GIF backgrounds */
     .bg-gif {
       position: fixed;
       top: 0; left: 0;
@@ -22,7 +22,6 @@
     #bgGif2 { z-index: -2; }
     #bgGif3 { z-index: -1; }
 
-    /* UI container above backgrounds */
     body {
       font-family: "Old English Text MT", "Diploma", "Goudy Old Style", cursive;
       margin: 0;
@@ -58,7 +57,6 @@
 </head>
 <body>
 
-  <!-- Layered GIF backgrounds -->
   <img src="background1.gif" alt="Background 1" class="bg-gif" id="bgGif1" />
   <img src="background2.gif" alt="Background 2" class="bg-gif" id="bgGif2" />
   <img src="background3.gif" alt="Background 3" class="bg-gif" id="bgGif3" />
@@ -115,7 +113,6 @@
       return bestKey;
     }
 
-    // Map beat fractions to note duration names (rounded approx)
     function getNoteDurationName(beats) {
       const durations = [
         { name: "whole", value: 4 },
@@ -147,14 +144,11 @@
       track.notes.sort((a, b) => a.time - b.time);
       let mergedAny = false;
 
-      for (let i = 0; i < track.notes.length - 1; ) {
+      for (let i = 0; i < track.notes.length - 1;) {
         const noteA = track.notes[i];
         const noteB = track.notes[i + 1];
 
-        if (
-          noteA.midi === noteB.midi &&
-          Math.abs(noteA.time + noteA.duration - noteB.time) < 0.0001
-        ) {
+        if (noteA.midi === noteB.midi && Math.abs(noteA.time + noteA.duration - noteB.time) < 0.0001) {
           noteA.duration += noteB.duration;
           track.notes.splice(i + 1, 1);
           mergedAny = true;
@@ -177,29 +171,38 @@
       return anyMerge;
     }
 
+    function getTimeSignatureAt(time, timeSigs) {
+      let current = timeSigs[0];
+      for (const sig of timeSigs) {
+        if (sig.ticks <= time) {
+          current = sig;
+        } else {
+          break;
+        }
+      }
+      return current ? `${current.timeSignature[0]}/${current.timeSignature[1]}` : "Unknown";
+    }
+
     document.getElementById('midiInput').addEventListener('change', async (event) => {
       const file = event.target.files[0];
       if (!file) return;
 
       const arrayBuffer = await file.arrayBuffer();
       const midi = new Midi(arrayBuffer);
-
       mergeAllTies(midi);
-
       cleanedMidi = midi;
 
-      let bpm = 120;
-      if (midi.header.tempos.length > 0) {
-        bpm = midi.header.tempos[0].bpm;
-      }
-
+      let bpm = midi.header.tempos.length > 0 ? midi.header.tempos[0].bpm : 120;
       const detectedKey = detectKey(midi);
+      const timeSignatures = midi.header.timeSignatures;
 
-      const rows = [["Track", "Start (s)", "Pitch", "MIDI Number", "Duration (s)", "Duration (beats)", "Duration Name", "Tempo (BPM)", "Key"]];
+      const rows = [["Track", "Start (s)", "Pitch", "MIDI Number", "Duration (s)", "Duration (beats)", "Duration Name", "Tempo (BPM)", "Key", "Time Signature"]];
       midi.tracks.forEach((track, tIndex) => {
         track.notes.forEach(note => {
           const durationSec = note.duration;
           const durationBeats = durationSec * (bpm / 60);
+          const timeSig = getTimeSignatureAt(note.ticks, timeSignatures);
+
           rows.push([
             tIndex + 1,
             note.time.toFixed(3),
@@ -209,7 +212,8 @@
             durationBeats.toFixed(6),
             getNoteDurationName(durationBeats),
             bpm.toFixed(2),
-            detectedKey
+            detectedKey,
+            timeSig
           ]);
         });
       });
