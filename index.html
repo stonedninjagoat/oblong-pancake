@@ -6,17 +6,9 @@
   <title>MIDI to CSV Tool</title>
   <script src="https://cdn.jsdelivr.net/npm/@tonejs/midi@2.0.27/build/Midi.min.js"></script>
   <style>
-    body {
-      font-family: sans-serif;
-      padding: 20px;
-    }
-    input, button {
-      margin: 10px 0;
-    }
-    #output {
-      white-space: pre-wrap;
-      margin-top: 20px;
-    }
+    body { font-family: sans-serif; padding: 20px; }
+    input, button { margin: 10px 0; }
+    #output { white-space: pre-wrap; margin-top: 20px; }
   </style>
 </head>
 <body>
@@ -29,6 +21,54 @@
   <script>
     let csvData = "";
 
+    // Map MIDI pitch class (0-11) to note name
+    const pitchClassNames = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
+
+    // Template for major and minor scales
+    const majorScale = [1, 0, 1, 0, 1, 1, 0, 1, 0, 1, 0, 1];
+    const minorScale = [1, 0, 1, 1, 0, 1, 0, 1, 1, 0, 1, 0];
+
+    // Cosine similarity
+    function cosineSimilarity(a, b) {
+      const dot = a.reduce((sum, val, i) => sum + val * b[i], 0);
+      const magA = Math.sqrt(a.reduce((sum, val) => sum + val * val, 0));
+      const magB = Math.sqrt(b.reduce((sum, val) => sum + val * val, 0));
+      return dot / (magA * magB);
+    }
+
+    // Rotate scale template
+    function rotateArray(arr, shift) {
+      return arr.slice(shift).concat(arr.slice(0, shift));
+    }
+
+    // Detect key based on note frequency histogram
+    function detectKey(midi) {
+      const hist = new Array(12).fill(0);
+      midi.tracks.forEach(track => {
+        track.notes.forEach(note => {
+          hist[note.midi % 12]++;
+        });
+      });
+
+      let bestKey = "C major";
+      let bestScore = -Infinity;
+
+      for (let i = 0; i < 12; i++) {
+        const majorSim = cosineSimilarity(hist, rotateArray(majorScale, i));
+        const minorSim = cosineSimilarity(hist, rotateArray(minorScale, i));
+        if (majorSim > bestScore) {
+          bestScore = majorSim;
+          bestKey = pitchClassNames[i] + " major";
+        }
+        if (minorSim > bestScore) {
+          bestScore = minorSim;
+          bestKey = pitchClassNames[i] + " minor";
+        }
+      }
+
+      return bestKey;
+    }
+
     document.getElementById('midiInput').addEventListener('change', async (event) => {
       const file = event.target.files[0];
       if (!file) return;
@@ -36,33 +76,40 @@
       const arrayBuffer = await file.arrayBuffer();
       const midi = new Midi(arrayBuffer);
 
-      // Use first tempo in file, default to 120 if none
+      // Get BPM (default = 120)
       let bpm = 120;
       if (midi.header.tempos.length > 0) {
         bpm = midi.header.tempos[0].bpm;
       }
 
-      // Header row with additional columns
-      const rows = [["Track", "Start (s)", "Pitch", "Duration (s)", "Duration (beats)", "Tempo (BPM)"]];
+      // Detect key
+      const detectedKey = detectKey(midi);
 
+      // CSV Header row
+      const rows = [["Track", "Start (s)", "Pitch", "Duration (s)", "Duration (beats)", "Tempo (BPM)", "Key"]];
+
+      // Parse note data
       midi.tracks.forEach((track, tIndex) => {
         track.notes.forEach(note => {
           const durationSec = note.duration;
           const durationBeats = durationSec * (bpm / 60);
-
           rows.push([
             tIndex + 1,
             note.time.toFixed(3),
             note.name,
             durationSec.toFixed(3),
             durationBeats.toFixed(6),
-            bpm.toFixed(2)
+            bpm.toFixed(2),
+            detectedKey
           ]);
         });
       });
 
+      // Join rows to form CSV string
       csvData = rows.map(r => r.join(",")).join("\n");
-      document.getElementById('output').textContent = csvData;
+
+      // Display output
+      document.getElementById('output').textContent = "Detected Key: " + detectedKey + "\n\n" + csvData;
     });
 
     document.getElementById('downloadCsv').addEventListener('click', () => {
