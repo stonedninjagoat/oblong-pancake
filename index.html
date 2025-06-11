@@ -1,4 +1,4 @@
-<!-- Full HTML file below -->
+<!-- Updated MIDI to CSV Tool -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -10,8 +10,7 @@
     .bg-gif {
       position: fixed;
       top: 0; left: 0;
-      width: 100vw;
-      height: 100vh;
+      width: 100vw; height: 100vh;
       object-fit: cover;
       pointer-events: none;
       z-index: -3;
@@ -21,37 +20,24 @@
     #bgGif1 { z-index: -3; }
     #bgGif2 { z-index: -2; }
     #bgGif3 { z-index: -1; }
-
     body {
       font-family: "Old English Text MT", "Diploma", "Goudy Old Style", cursive;
-      margin: 0;
-      padding: 20px;
-      color: white;
-      background: transparent;
-      min-height: 100vh;
-      position: relative;
-      z-index: 0;
+      margin: 0; padding: 20px;
+      color: white; background: transparent;
+      min-height: 100vh; position: relative; z-index: 0;
     }
-
-    h1 {
-      text-shadow: 2px 2px 6px black;
-    }
-
+    h1 { text-shadow: 2px 2px 6px black; }
     input, button {
       margin: 10px 10px 10px 0;
-      font-size: 1rem;
-      cursor: pointer;
+      font-size: 1rem; cursor: pointer;
     }
-
     #output {
       white-space: pre-wrap;
       margin-top: 20px;
       font-family: Consolas, monospace;
       background-color: rgba(0, 0, 0, 0.6);
-      padding: 12px;
-      border-radius: 8px;
-      max-height: 50vh;
-      overflow-y: auto;
+      padding: 12px; border-radius: 8px;
+      max-height: 50vh; overflow-y: auto;
     }
   </style>
 </head>
@@ -71,182 +57,127 @@
     let csvData = "";
     let cleanedMidi = null;
 
-    const pitchClassNames = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
-    const majorScale = [1, 0, 1, 0, 1, 1, 0, 1, 0, 1, 0, 1];
-    const minorScale = [1, 0, 1, 1, 0, 1, 0, 1, 1, 0, 1, 0];
-
-    function cosineSimilarity(a, b) {
-      const dot = a.reduce((sum, val, i) => sum + val * b[i], 0);
-      const magA = Math.sqrt(a.reduce((sum, val) => sum + val * val, 0));
-      const magB = Math.sqrt(b.reduce((sum, val) => sum + val * val, 0));
-      return dot / (magA * magB);
-    }
-
-    function rotateArray(arr, shift) {
-      return arr.slice(shift).concat(arr.slice(0, shift));
-    }
-
-    function detectKey(midi) {
-      const hist = new Array(12).fill(0);
-      midi.tracks.forEach(track => {
-        track.notes.forEach(note => {
-          hist[note.midi % 12]++;
-        });
-      });
-
-      let bestKey = "C major";
-      let bestScore = -Infinity;
-
-      for (let i = 0; i < 12; i++) {
-        const majorSim = cosineSimilarity(hist, rotateArray(majorScale, i));
-        const minorSim = cosineSimilarity(hist, rotateArray(minorScale, i));
-        if (majorSim > bestScore) {
-          bestScore = majorSim;
-          bestKey = pitchClassNames[i] + " major";
-        }
-        if (minorSim > bestScore) {
-          bestScore = minorSim;
-          bestKey = pitchClassNames[i] + " minor";
-        }
-      }
-
-      return bestKey;
-    }
-
-    function getNoteDurationName(beats) {
-      const durations = [
-        { name: "whole", value: 4 },
-        { name: "dotted half", value: 3 },
-        { name: "half", value: 2 },
-        { name: "dotted quarter", value: 1.5 },
-        { name: "quarter", value: 1 },
-        { name: "dotted eighth", value: 0.75 },
-        { name: "eighth", value: 0.5 },
-        { name: "triplet quarter", value: 2/3 },
-        { name: "triplet eighth", value: 1/3 },
-        { name: "sixteenth", value: 0.25 }
-      ];
-
-      let closest = durations[0];
-      let minDiff = Math.abs(beats - closest.value);
-
-      for (const dur of durations) {
-        const diff = Math.abs(beats - dur.value);
-        if (diff < minDiff) {
-          minDiff = diff;
-          closest = dur;
-        }
-      }
-      return closest.name;
-    }
-
     function mergeAdjacentTies(track) {
       track.notes.sort((a, b) => a.time - b.time);
       let mergedAny = false;
-
       for (let i = 0; i < track.notes.length - 1;) {
-        const noteA = track.notes[i];
-        const noteB = track.notes[i + 1];
-
-        if (noteA.midi === noteB.midi && Math.abs(noteA.time + noteA.duration - noteB.time) < 0.0001) {
-          noteA.duration += noteB.duration;
+        const a = track.notes[i], b = track.notes[i + 1];
+        if (a.midi === b.midi && Math.abs(a.time + a.duration - b.time) < 0.0001) {
+          a.duration += b.duration;
           track.notes.splice(i + 1, 1);
           mergedAny = true;
-        } else {
-          i++;
-        }
+        } else i++;
       }
       return mergedAny;
     }
 
     function mergeAllTies(midi) {
-      let anyMerge = false;
+      let changed = false;
       midi.tracks.forEach(track => {
-        let merged;
-        do {
-          merged = mergeAdjacentTies(track);
-          if (merged) anyMerge = true;
-        } while (merged);
+        while (mergeAdjacentTies(track)) changed = true;
       });
-      return anyMerge;
+      return changed;
     }
 
-    function getTimeSignatureAt(time, timeSigs) {
-      let current = timeSigs[0];
-      for (const sig of timeSigs) {
-        if (sig.ticks <= time) {
-          current = sig;
-        } else {
-          break;
-        }
+    function detectKey(midi) {
+      const pitchClassNames = ["C","C#","D","D#","E","F","F#","G","G#","A","A#","B"];
+      const majorScale = [1,0,1,0,1,1,0,1,0,1,0,1];
+      const minorScale = [1,0,1,1,0,1,0,1,1,0,1,0];
+
+      const hist = new Array(12).fill(0);
+      midi.tracks.forEach(track => track.notes.forEach(n => hist[n.midi % 12]++) );
+
+      function cosineSim(a, b) {
+        const dot = a.reduce((sum, val, i) => sum + val * b[i], 0);
+        const mag = v => Math.sqrt(v.reduce((sum, x) => sum + x*x, 0));
+        return dot / (mag(a) * mag(b));
       }
-      return current ? `${current.timeSignature[0]}/${current.timeSignature[1]}` : "Unknown";
+
+      function rotate(arr, n) {
+        return arr.slice(n).concat(arr.slice(0, n));
+      }
+
+      let bestScore = -Infinity, bestKey = "C major";
+      for (let i = 0; i < 12; i++) {
+        let maj = cosineSim(hist, rotate(majorScale, i));
+        let min = cosineSim(hist, rotate(minorScale, i));
+        if (maj > bestScore) { bestScore = maj; bestKey = pitchClassNames[i] + " major"; }
+        if (min > bestScore) { bestScore = min; bestKey = pitchClassNames[i] + " minor"; }
+      }
+      return bestKey;
+    }
+
+    function getTimeSignatureFractionAt(ticks, timeSigs) {
+      let sig = timeSigs[0];
+      for (let s of timeSigs) if (s.ticks <= ticks) sig = s; else break;
+      if (!sig) return "Unknown";
+      return `${sig.timeSignature[0]}/${sig.timeSignature[1]}`;  // e.g., 4/4, 5/4, 13/8
+    }
+
+    function formatDurationFraction(beats, timeSigDenom) {
+      const wholeNoteBeats = 4;
+      const durationWhole = beats / wholeNoteBeats;
+      const fracStr = durationWhole.toFixed(6);
+      return fracStr;
     }
 
     document.getElementById('midiInput').addEventListener('change', async (event) => {
       const file = event.target.files[0];
       if (!file) return;
 
-      const arrayBuffer = await file.arrayBuffer();
-      const midi = new Midi(arrayBuffer);
+      const midi = new Midi(await file.arrayBuffer());
       mergeAllTies(midi);
       cleanedMidi = midi;
 
-      let bpm = midi.header.tempos.length > 0 ? midi.header.tempos[0].bpm : 120;
-      const detectedKey = detectKey(midi);
-      const timeSignatures = midi.header.timeSignatures;
+      const bpm = midi.header.tempos.length > 0 ? midi.header.tempos[0].bpm : 120;
+      const timeSigs = midi.header.timeSignatures;
+      const key = detectKey(midi);
 
-      const rows = [["Track", "Start (s)", "Pitch", "MIDI Number", "Duration (s)", "Duration (beats)", "Duration Name", "Tempo (BPM)", "Key", "Time Signature"]];
-      midi.tracks.forEach((track, tIndex) => {
+      const rows = [["Track", "Start (s)", "Pitch", "MIDI Number", "Duration (s)", "Beats", "Duration (fraction)", "Tempo", "Key", "Time Signature"]];
+      midi.tracks.forEach((track, i) => {
         track.notes.forEach(note => {
           const durationSec = note.duration;
           const durationBeats = durationSec * (bpm / 60);
-          const timeSig = getTimeSignatureAt(note.ticks, timeSignatures);
+          const timeSig = getTimeSignatureFractionAt(note.ticks, timeSigs);
+          const timeSigDenom = parseInt(timeSig.split("/")[1]);
+          const fraction = formatDurationFraction(durationBeats, timeSigDenom);
 
           rows.push([
-            tIndex + 1,
+            i + 1,
             note.time.toFixed(3),
             note.name,
             note.midi,
             durationSec.toFixed(3),
             durationBeats.toFixed(6),
-            getNoteDurationName(durationBeats),
+            fraction,
             bpm.toFixed(2),
-            detectedKey,
+            key,
             timeSig
           ]);
         });
       });
 
       csvData = rows.map(r => r.join(",")).join("\n");
-      document.getElementById('output').textContent = "Detected Key: " + detectedKey + "\n\n" + csvData;
+      document.getElementById("output").textContent = "Detected Key: " + key + "\n\n" + csvData;
     });
 
     document.getElementById('downloadCsv').addEventListener('click', () => {
       if (!csvData) return;
       const blob = new Blob([csvData], { type: 'text/csv' });
-      const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
-      a.href = url;
+      a.href = URL.createObjectURL(blob);
       a.download = 'midi_data.csv';
-      document.body.appendChild(a);
       a.click();
-      document.body.removeChild(a);
     });
 
     document.getElementById('downloadMidi').addEventListener('click', () => {
       if (!cleanedMidi) return;
-      const bytes = cleanedMidi.toArray();
-      const blob = new Blob([bytes], { type: 'audio/midi' });
-      const url = URL.createObjectURL(blob);
+      const blob = new Blob([cleanedMidi.toArray()], { type: 'audio/midi' });
       const a = document.createElement('a');
-      a.href = url;
+      a.href = URL.createObjectURL(blob);
       a.download = 'cleaned_midi.mid';
-      document.body.appendChild(a);
       a.click();
-      document.body.removeChild(a);
     });
   </script>
-
 </body>
 </html>
