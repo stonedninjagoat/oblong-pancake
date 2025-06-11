@@ -1,4 +1,3 @@
-<!-- Enhanced MIDI to CSV Tool -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -17,9 +16,6 @@
       opacity: 0.4;
       mix-blend-mode: screen;
     }
-    #bgGif1 { z-index: -3; }
-    #bgGif2 { z-index: -2; }
-    #bgGif3 { z-index: -1; }
     body {
       font-family: "Old English Text MT", "Diploma", "Goudy Old Style", cursive;
       margin: 0; padding: 20px;
@@ -43,9 +39,9 @@
 </head>
 <body>
 
-  <img src="background1.gif" alt="Background 1" class="bg-gif" id="bgGif1" />
-  <img src="background2.gif" alt="Background 2" class="bg-gif" id="bgGif2" />
-  <img src="background3.gif" alt="Background 3" class="bg-gif" id="bgGif3" />
+  <img src="background1.gif" alt="Background 1" class="bg-gif" />
+  <img src="background2.gif" alt="Background 2" class="bg-gif" />
+  <img src="background3.gif" alt="Background 3" class="bg-gif" />
 
   <h1>MIDI to CSV Converter</h1>
   <input type="file" id="midiInput" accept=".mid,.midi" />
@@ -56,28 +52,22 @@
   <script>
     let csvData = "";
     let cleanedMidi = null;
-    let baseFileName = "output";
 
     function mergeAdjacentTies(track) {
       track.notes.sort((a, b) => a.time - b.time);
-      let mergedAny = false;
       for (let i = 0; i < track.notes.length - 1;) {
         const a = track.notes[i], b = track.notes[i + 1];
         if (a.midi === b.midi && Math.abs(a.time + a.duration - b.time) < 0.0001) {
           a.duration += b.duration;
           track.notes.splice(i + 1, 1);
-          mergedAny = true;
-        } else i++;
+        } else {
+          i++;
+        }
       }
-      return mergedAny;
     }
 
     function mergeAllTies(midi) {
-      let changed = false;
-      midi.tracks.forEach(track => {
-        while (mergeAdjacentTies(track)) changed = true;
-      });
-      return changed;
+      midi.tracks.forEach(track => mergeAdjacentTies(track));
     }
 
     function detectKey(midi) {
@@ -108,27 +98,31 @@
       return bestKey;
     }
 
-    function getTimeSignatureAt(timeTicks, timeSigs) {
+    function getTimeSignatureAt(ticks, timeSigs) {
       let current = timeSigs[0];
       for (const sig of timeSigs) {
-        if (sig.ticks <= timeTicks) current = sig;
-        else break;
+        if (sig.ticks <= ticks) {
+          current = sig;
+        } else {
+          break;
+        }
       }
-      if (!current || !current.timeSignature || current.timeSignature.length !== 2) return "Unknown";
+      if (!current || !current.timeSignature || current.timeSignature.length !== 2) {
+        return "Unknown";
+      }
       const [numerator, denominator] = current.timeSignature;
       return `${numerator}/${denominator}`;
     }
 
-    function formatDurationFraction(beats) {
+    function formatDurationFraction(beats, timeSigDenom) {
       const wholeNoteBeats = 4;
-      return (beats / wholeNoteBeats).toFixed(6);
+      const durationWhole = beats / wholeNoteBeats;
+      return durationWhole.toFixed(6);
     }
 
     document.getElementById('midiInput').addEventListener('change', async (event) => {
       const file = event.target.files[0];
       if (!file) return;
-
-      baseFileName = file.name.replace(/\.[^/.]+$/, "");
 
       const midi = new Midi(await file.arrayBuffer());
       mergeAllTies(midi);
@@ -139,28 +133,25 @@
       const key = detectKey(midi);
 
       const rows = [["Track", "Start (s)", "Pitch", "MIDI Number", "Duration (s)", "Beats", "Duration (fraction)", "Tempo", "Key", "Time Signature"]];
-
-      midi.tracks.forEach((track, tIndex) => {
+      midi.tracks.forEach((track, trackIndex) => {
         track.notes.forEach(note => {
           const durationSec = note.duration;
           const durationBeats = note.durationTicks / midi.header.ppq;
-          const timeSig = getTimeSignatureFractionAt(note.ticks, timeSigs);
-const timeSigDenom = parseInt(timeSig.split("/")[1]);
-const fraction = formatDurationFraction(durationBeats, timeSigDenom);
+          const durationFraction = formatDurationFraction(durationBeats);
+          const timeSig = getTimeSignatureAt(note.ticks, timeSigs);
 
-rows.push([
-  tIndex + 1,
-  note.time.toFixed(3),
-  note.name,
-  note.midi,
-  durationSec.toFixed(3),
-  durationFraction.toFixed(6),
-  durationFraction === 0 ? "rest" : durationFraction.toString(),
-  bpm.toFixed(2),
-  detectedKey,
-  timeSig
-]);
-
+          rows.push([
+            trackIndex + 1,
+            note.time.toFixed(3),
+            note.name,
+            note.midi,
+            durationSec.toFixed(3),
+            durationBeats.toFixed(6),
+            durationFraction,
+            bpm.toFixed(2),
+            key,
+            timeSig
+          ]);
         });
       });
 
@@ -173,7 +164,7 @@ rows.push([
       const blob = new Blob([csvData], { type: 'text/csv' });
       const a = document.createElement('a');
       a.href = URL.createObjectURL(blob);
-      a.download = `${baseFileName}csv.csv`;
+      a.download = 'midi_data.csv';
       a.click();
     });
 
@@ -182,7 +173,7 @@ rows.push([
       const blob = new Blob([cleanedMidi.toArray()], { type: 'audio/midi' });
       const a = document.createElement('a');
       a.href = URL.createObjectURL(blob);
-      a.download = `${baseFileName}midi.mid`;
+      a.download = 'cleaned_midi.mid';
       a.click();
     });
   </script>
