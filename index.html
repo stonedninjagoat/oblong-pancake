@@ -144,21 +144,23 @@
         track.notes.forEach(note => {
           const durationSec = note.duration;
           const durationBeats = note.durationTicks / midi.header.ppq;
-          const fraction = formatDurationFraction(durationBeats);
-          const timeSig = getTimeSignatureAt(note.ticks, timeSigs);
+          const timeSig = getTimeSignatureFractionAt(note.ticks, timeSigs);
+const timeSigDenom = parseInt(timeSig.split("/")[1]);
+const fraction = formatDurationFraction(durationBeats, timeSigDenom);
 
-          rows.push([
-            tIndex + 1,
-            note.time.toFixed(3),
-            note.name,
-            note.midi,
-            durationSec.toFixed(3),
-            durationBeats.toFixed(6),
-            durationBeats === 0 ? "rest" : fraction,
-            bpm.toFixed(2),
-            key,
-            timeSig
-          ]);
+rows.push([
+  tIndex + 1,
+  note.time.toFixed(3),
+  note.name,
+  note.midi,
+  durationSec.toFixed(3),
+  durationFraction.toFixed(6),
+  durationFraction === 0 ? "rest" : durationFraction.toString(),
+  bpm.toFixed(2),
+  detectedKey,
+  timeSig
+]);
+
         });
       });
 
