@@ -107,11 +107,20 @@
       return bestKey;
     }
 
-    function getTimeSignatureFractionAt(ticks, timeSigs) {
-      let sig = timeSigs[0];
-      for (let s of timeSigs) if (s.ticks <= ticks) sig = s; else break;
-      if (!sig) return "Unknown";
-      return `${sig.timeSignature[0]}/${sig.timeSignature[1]}`;  // e.g., 4/4, 5/4, 13/8
+    function getTimeSignatureAt(time, timeSigs) {
+      let current = timeSigs[0];
+      for (const sig of timeSigs) {
+        if (sig.ticks <= time) {
+          current = sig;
+        } else {
+          break;
+        }
+      }
+      if (!current || !current.timeSignature || current.timeSignature.length !== 2) {
+        return "Unknown";
+      }
+      const [numerator, denominator] = current.timeSignature;
+      return `${numerator}/${denominator}`;
     }
 
     function formatDurationFraction(beats, timeSigDenom) {
@@ -137,21 +146,22 @@
       midi.tracks.forEach((track, i) => {
         track.notes.forEach(note => {
           const durationSec = note.duration;
-          const durationBeats = durationSec * (bpm / 60);
+          const durationBeats = note.durationTicks / midi.header.ppq; // get number of quarter notes
+          const durationFraction = durationBeats / 4; // since whole note = 1.0
           const timeSig = getTimeSignatureFractionAt(note.ticks, timeSigs);
           const timeSigDenom = parseInt(timeSig.split("/")[1]);
           const fraction = formatDurationFraction(durationBeats, timeSigDenom);
 
           rows.push([
-            i + 1,
+            tIndex + 1,
             note.time.toFixed(3),
             note.name,
             note.midi,
             durationSec.toFixed(3),
-            durationBeats.toFixed(6),
-            fraction,
+            durationFraction.toFixed(6),
+            durationFraction === 0 ? "rest" : durationFraction.toString(),
             bpm.toFixed(2),
-            key,
+            detectedKey,
             timeSig
           ]);
         });
