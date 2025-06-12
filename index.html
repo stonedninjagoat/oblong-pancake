@@ -98,10 +98,10 @@
         }
       }
       if (!current || !current.timeSignature || current.timeSignature.length !== 2) {
-        return "'Unknown";
+        return -1; // or NaN or null
       }
       const [numerator, denominator] = current.timeSignature;
-      return `'${numerator}/${denominator}`; // Prefixed with apostrophe to force text
+      return numerator / denominator; // ← Decimal number
     }
 
     function formatDurationFraction(beats) {
@@ -122,7 +122,7 @@
       const timeSigs = midi.header.timeSignatures;
       const key = detectKey(midi);
 
-      const rows = [["Track", "Start (s)", "Pitch", "MIDI Number", "Duration (s)", "Beats", "Duration (fraction)", "Tempo", "Key", "Time Signature"]];
+      const rows = [["Track", "Start (s)", "Pitch", "MIDI Number", "Duration (s)", "Beats", "Duration (fraction)", "Tempo", "Key", "Time Signature (Decimal)"]];
       midi.tracks.forEach((track, trackIndex) => {
         track.notes.forEach(note => {
           const durationSec = note.duration;
