@@ -6,42 +6,34 @@
   <title>MIDI to CSV Tool</title>
   <script src="https://cdn.jsdelivr.net/npm/@tonejs/midi@2.0.27/build/Midi.min.js"></script>
   <style>
-    .bg-gif {
-      position: fixed;
-      top: 0; left: 0;
-      width: 100vw; height: 100vh;
-      object-fit: cover;
-      pointer-events: none;
-      z-index: -3;
-      opacity: 0.4;
-      mix-blend-mode: screen;
-    }
     body {
-      font-family: "Old English Text MT", "Diploma", "Goudy Old Style", cursive;
-      margin: 0; padding: 20px;
-      color: white; background: transparent;
-      min-height: 100vh; position: relative; z-index: 0;
+      font-family: sans-serif;
+      margin: 0;
+      padding: 20px;
+      background: #111;
+      color: #eee;
     }
-    h1 { text-shadow: 2px 2px 6px black; }
+    h1 {
+      margin-bottom: 10px;
+    }
     input, button {
       margin: 10px 10px 10px 0;
-      font-size: 1rem; cursor: pointer;
+      font-size: 1rem;
+      cursor: pointer;
     }
     #output {
       white-space: pre-wrap;
       margin-top: 20px;
       font-family: Consolas, monospace;
-      background-color: rgba(0, 0, 0, 0.6);
-      padding: 12px; border-radius: 8px;
-      max-height: 50vh; overflow-y: auto;
+      background-color: #222;
+      padding: 12px;
+      border-radius: 8px;
+      max-height: 50vh;
+      overflow-y: auto;
     }
   </style>
 </head>
 <body>
-
-  <img src="background1.gif" alt="Background 1" class="bg-gif" />
-  <img src="background2.gif" alt="Background 2" class="bg-gif" />
-  <img src="background3.gif" alt="Background 3" class="bg-gif" />
 
   <h1>MIDI to CSV Converter</h1>
   <input type="file" id="midiInput" accept=".mid,.midi" />
@@ -74,7 +66,6 @@
       const pitchClassNames = ["C","C#","D","D#","E","F","F#","G","G#","A","A#","B"];
       const majorScale = [1,0,1,0,1,1,0,1,0,1,0,1];
       const minorScale = [1,0,1,1,0,1,0,1,1,0,1,0];
-
       const hist = new Array(12).fill(0);
       midi.tracks.forEach(track => track.notes.forEach(n => hist[n.midi % 12]++) );
 
@@ -114,38 +105,11 @@
       return `${numerator}/${denominator}`;
     }
 
-    function formatDurationFraction(beats, timeSigDenom) {
+    function formatDurationFraction(beats) {
       const wholeNoteBeats = 4;
       const durationWhole = beats / wholeNoteBeats;
       return durationWhole.toFixed(6);
     }
-
-    function buildMeasureMap(timeSigs, ppq, totalTicks) {
-  const measureMap = [];
-  for (let i = 0; i < timeSigs.length; i++) {
-    const current = timeSigs[i];
-    const next = timeSigs[i + 1] || { ticks: totalTicks };
-    const [num, denom] = current.timeSignature;
-    const beatsPerMeasure = num;
-    const beatTicks = (4 / denom) * ppq;
-    const measureTicks = beatsPerMeasure * beatTicks;
-
-    for (let t = current.ticks; t < next.ticks; t += measureTicks) {
-      measureMap.push({
-        startTick: t,
-        endTick: t + measureTicks,
-        timeSignature: `${num}/${denom}`
-      });
-    }
-  }
-  return measureMap;
-}
-
-function getMeasureTimeSignature(noteTicks, measureMap) {
-  const measure = measureMap.find(m => noteTicks >= m.startTick && noteTicks < m.endTick);
-  return measure ? measure.timeSignature : "Unknown";
-}
-
 
     document.getElementById('midiInput').addEventListener('change', async (event) => {
       const file = event.target.files[0];
@@ -159,29 +123,28 @@ function getMeasureTimeSignature(noteTicks, measureMap) {
       const timeSigs = midi.header.timeSignatures;
       const key = detectKey(midi);
 
-const rows = [["Track", "Start (s)", "Pitch", "MIDI Number", "Duration (s)", "Beats", "Duration (fraction)", "Tempo", "Key", "Time Signature"]];
-midi.tracks.forEach((track, trackIndex) => {
-  track.notes.forEach(note => {
-    const durationSec = note.duration;
-    const durationBeats = note.durationTicks / midi.header.ppq;
-    const durationFraction = formatDurationFraction(durationBeats);
-    const timeSig = getTimeSignatureAt(note.ticks, timeSigs);
+      const rows = [["Track", "Start (s)", "Pitch", "MIDI Number", "Duration (s)", "Beats", "Duration (fraction)", "Tempo", "Key", "Time Signature"]];
+      midi.tracks.forEach((track, trackIndex) => {
+        track.notes.forEach(note => {
+          const durationSec = note.duration;
+          const durationBeats = note.durationTicks / midi.header.ppq;
+          const durationFraction = formatDurationFraction(durationBeats);
+          const timeSig = getTimeSignatureAt(note.ticks, timeSigs);
 
-    rows.push([
-      trackIndex + 1,
-      note.time.toFixed(3),
-      note.name,
-      note.midi,
-      durationSec.toFixed(3),
-      durationBeats.toFixed(6),
-      durationFraction,
-      bpm.toFixed(2),
-      key,
-      timeSig
-    ]);
-  });
-});
-
+          rows.push([
+            trackIndex + 1,
+            note.time.toFixed(3),
+            note.name,
+            note.midi,
+            durationSec.toFixed(3),
+            durationBeats.toFixed(6),
+            durationFraction,
+            bpm.toFixed(2),
+            key,
+            timeSig
+          ]);
+        });
+      });
 
       csvData = rows.map(r => r.join(",")).join("\n");
       document.getElementById("output").textContent = "Detected Key: " + key + "\n\n" + csvData;
