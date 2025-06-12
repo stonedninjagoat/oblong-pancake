@@ -99,10 +99,10 @@
         }
       }
       if (!current || !current.timeSignature || current.timeSignature.length !== 2) {
-        return "Unknown";
+        return "'Unknown";
       }
       const [numerator, denominator] = current.timeSignature;
-      return `${numerator}/${denominator}`;
+      return `'${numerator}/${denominator}`; // Prefixed with apostrophe to force text
     }
 
     function formatDurationFraction(beats) {
