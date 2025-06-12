@@ -120,6 +120,33 @@
       return durationWhole.toFixed(6);
     }
 
+    function buildMeasureMap(timeSigs, ppq, totalTicks) {
+  const measureMap = [];
+  for (let i = 0; i < timeSigs.length; i++) {
+    const current = timeSigs[i];
+    const next = timeSigs[i + 1] || { ticks: totalTicks };
+    const [num, denom] = current.timeSignature;
+    const beatsPerMeasure = num;
+    const beatTicks = (4 / denom) * ppq;
+    const measureTicks = beatsPerMeasure * beatTicks;
+
+    for (let t = current.ticks; t < next.ticks; t += measureTicks) {
+      measureMap.push({
+        startTick: t,
+        endTick: t + measureTicks,
+        timeSignature: `${num}/${denom}`
+      });
+    }
+  }
+  return measureMap;
+}
+
+function getMeasureTimeSignature(noteTicks, measureMap) {
+  const measure = measureMap.find(m => noteTicks >= m.startTick && noteTicks < m.endTick);
+  return measure ? measure.timeSignature : "Unknown";
+}
+
+
     document.getElementById('midiInput').addEventListener('change', async (event) => {
       const file = event.target.files[0];
       if (!file) return;
@@ -132,28 +159,29 @@
       const timeSigs = midi.header.timeSignatures;
       const key = detectKey(midi);
 
-      const rows = [["Track", "Start (s)", "Pitch", "MIDI Number", "Duration (s)", "Beats", "Duration (fraction)", "Tempo", "Key", "Time Signature"]];
-      midi.tracks.forEach((track, trackIndex) => {
-        track.notes.forEach(note => {
-          const durationSec = note.duration;
-          const durationBeats = note.durationTicks / midi.header.ppq;
-          const durationFraction = formatDurationFraction(durationBeats);
-          const timeSig = getTimeSignatureAt(note.ticks, timeSigs);
+const rows = [["Track", "Start (s)", "Pitch", "MIDI Number", "Duration (s)", "Beats", "Duration (fraction)", "Tempo", "Key", "Time Signature"]];
+midi.tracks.forEach((track, trackIndex) => {
+  track.notes.forEach(note => {
+    const durationSec = note.duration;
+    const durationBeats = note.durationTicks / midi.header.ppq;
+    const durationFraction = formatDurationFraction(durationBeats);
+    const timeSig = getTimeSignatureAt(note.ticks, timeSigs);
 
-          rows.push([
-            trackIndex + 1,
-            note.time.toFixed(3),
-            note.name,
-            note.midi,
-            durationSec.toFixed(3),
-            durationBeats.toFixed(6),
-            durationFraction,
-            bpm.toFixed(2),
-            key,
-            timeSig
-          ]);
-        });
-      });
+    rows.push([
+      trackIndex + 1,
+      note.time.toFixed(3),
+      note.name,
+      note.midi,
+      durationSec.toFixed(3),
+      durationBeats.toFixed(6),
+      durationFraction,
+      bpm.toFixed(2),
+      key,
+      timeSig
+    ]);
+  });
+});
+
 
       csvData = rows.map(r => r.join(",")).join("\n");
       document.getElementById("output").textContent = "Detected Key: " + key + "\n\n" + csvData;
