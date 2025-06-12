@@ -44,6 +44,7 @@
   <script>
     let csvData = "";
     let cleanedMidi = null;
+    let baseFileName = "output";
 
     function mergeAdjacentTies(track) {
       track.notes.sort((a, b) => a.time - b.time);
@@ -113,6 +114,7 @@
 
     document.getElementById('midiInput').addEventListener('change', async (event) => {
       const file = event.target.files[0];
+      baseFileName = file.name.replace(/\.[^/.]+$/, ""); // remove extension
       if (!file) return;
 
       const midi = new Midi(await file.arrayBuffer());
@@ -155,7 +157,7 @@
       const blob = new Blob([csvData], { type: 'text/csv' });
       const a = document.createElement('a');
       a.href = URL.createObjectURL(blob);
-      a.download = 'midi_data.csv';
+      a.download = `${baseFileName} Datasheet.csv`;
       a.click();
     });
 
@@ -164,7 +166,7 @@
       const blob = new Blob([cleanedMidi.toArray()], { type: 'audio/midi' });
       const a = document.createElement('a');
       a.href = URL.createObjectURL(blob);
-      a.download = 'cleaned_midi.mid';
+      a.download = `${baseFileName} MIDI.mid`;
       a.click();
     });
   </script>
