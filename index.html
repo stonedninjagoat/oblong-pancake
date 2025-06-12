@@ -125,7 +125,7 @@
       const timeSigs = midi.header.timeSignatures;
       const key = detectKey(midi);
 
-      const rows = [["Track", "Start (s)", "Pitch", "MIDI Number", "Duration (s)", "Beats", "Duration (fraction)", "Tempo", "Key", "Time Signature (Decimal)"]];
+      const rows = [["Track", "Position", "Note", "MIDI", "Duration", "Beats", "Duration (fraction)", "Tempo", "Key", "TimeSig"]];
       midi.tracks.forEach((track, trackIndex) => {
         track.notes.forEach(note => {
           const durationSec = note.duration;
